@@ -26,7 +26,7 @@
 
 建置腳本會將 portable EXE 複製到 `dist\千迷AI.exe`。`dist`、模型、日誌、生成圖片與本機工作流 runtime 均由 `.gitignore` 排除。
 
-更多資訊請見 [安裝與維運說明](docs/INSTALL.md)、[模型清單](docs/MODELS.md) 與 [工作流說明](docs/WORKFLOWS.md)。
+更多資訊請見 [安裝與維運說明](docs/INSTALL.md)、[模型清單](docs/MODELS.md)、[工作流說明](docs/WORKFLOWS.md) 與 [卡密系統計畫](docs/LICENSING_PLAN.md)。
 
 ## 第三方來源
 
