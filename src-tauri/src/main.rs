@@ -8,7 +8,7 @@ use std::{
     fs,
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -157,6 +157,7 @@ async fn generate_images(
         images
     };
     tauri::async_runtime::spawn_blocking(move || {
+        let _gpu_guard = acquire_gpu()?;
         if workflow == "pose" {
             run_pose_batch(app, prompt, images)
         } else {
@@ -165,6 +166,36 @@ async fn generate_images(
     })
     .await
     .map_err(|e| format!("生成工作中斷：{e}"))?
+}
+
+fn acquire_gpu() -> Result<fs::File, String> {
+    let runtime = PathBuf::from(OUTPUT_ROOT)
+        .parent()
+        .ok_or("無法定位產品資料夾。")?
+        .join(".runtime");
+    fs::create_dir_all(&runtime).map_err(|e| format!("無法建立 GPU 鎖目錄：{e}"))?;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(runtime.join("gpu-task.lock"))
+        .map_err(|e| format!("無法建立 GPU 鎖：{e}"))?;
+    if let Err(error) = file.try_lock() {
+        if let Ok(mut log) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(runtime.join("gpu.log"))
+        {
+            let _ = writeln!(
+                log,
+                "{} desktop GPU lock unavailable: {error}",
+                unique_stamp()
+            );
+        }
+        return Err("GPU 正由手機或其他千迷AI工作使用，請稍後再試。".into());
+    }
+    Ok(file)
 }
 
 fn run_pose_batch(app: AppHandle, prompt: String, images: Vec<String>) -> Result<(), String> {
@@ -353,7 +384,7 @@ fn validate_pose_dependencies(edit_mode: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn run_pose_one(prompt: &str, image: &str, output: &PathBuf) -> Result<(), String> {
+fn run_pose_one(prompt: &str, image: &str, output: &Path) -> Result<(), String> {
     let edit_mode = !image.is_empty();
     let run_name = format!("qianmi_{}", unique_stamp());
     let seed = (unique_stamp() % 9_223_372_036_854_775_807).to_string();
@@ -632,4 +663,43 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("啟動千迷AI失敗");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_lock_blocks_the_mobile_worker() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let python = root.join(r".runtime\mobile-venv\Scripts\python.exe");
+        let probe = "import sys\nfrom mobile.gpu import gpu_lock\ntry:\n with gpu_lock(timeout=0, path=sys.argv[1]): pass\nexcept TimeoutError:\n raise SystemExit(7)";
+        let lock_path = root
+            .join(".runtime")
+            .join(format!("gpu-test-{}.lock", unique_stamp()));
+        let guard = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+            .unwrap();
+        guard.try_lock().unwrap();
+        let status = Command::new(&python)
+            .current_dir(&root)
+            .args(["-c", probe, lock_path.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(7));
+        drop(guard);
+        let status = Command::new(&python)
+            .current_dir(&root)
+            .args(["-c", probe, lock_path.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::remove_file(lock_path).unwrap();
+    }
 }

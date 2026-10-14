@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#faf7ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="千迷AI">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="stylesheet" href="/static/mobile.css">
+  <title>千迷AI · 隨身創作</title>
+</head>
+<body>
+  <header><a class="brand" href="/">✿ 千迷AI <span>隨身創作</span></a><button id="logout" class="quiet hidden">登出</button></header>
+  <main id="login-view" class="login-view">
+    <section class="login-card">
+      <div class="flower" aria-hidden="true">✿</div>
+      <p class="eyebrow">YOUR PRIVATE CREATIVE SPACE</p>
+      <h1>把靈感，交給千迷AI</h1>
+      <p>連上你的電腦，隨時隨地創作圖片。</p>
+      <form id="login-form">
+        <label for="code">私人連線碼</label>
+        <input id="code" name="code" type="password" autocomplete="current-password" required maxlength="128" placeholder="輸入電腦上顯示的連線碼">
+        <button id="login-button" class="primary" type="submit">連接我的電腦 <span aria-hidden="true">↗</span></button>
+      </form>
+      <p id="login-error" class="error" role="alert"></p>
+      <small>圖片會傳至你的電腦處理。電腦需保持開機與連網。</small>
+    </section>
+  </main>
+  <main id="studio" class="studio hidden">
+    <div class="toolbar"><span class="online">● 已連接私人工作室</span><button id="install" class="quiet hidden">加入主畫面</button></div>
+    <section id="feed" class="feed" aria-label="創作紀錄" aria-live="polite">
+      <div id="welcome" class="welcome"><span aria-hidden="true">✧</span><h1>今天，想創作什麼？</h1><p>寫下想法，或上傳圖片開始改造。</p></div>
+    </section>
+    <form id="composer" class="composer">
+      <div id="tray" class="tray" aria-label="待處理圖片"></div>
+      <details><summary>固定提示詞與常用按鈕</summary><label for="fixed">每次自動加入的提示詞</label><textarea id="fixed" rows="2" maxlength="4000" placeholder="例如：保留人物五官、自然光線…"></textarea><div id="presets" class="presets"></div></details>
+      <label for="prompt" class="sr-only">圖片生成或修改提示詞</label>
+      <textarea id="prompt" rows="2" maxlength="8000" placeholder="說說你的想法…"></textarea>
+      <div class="composer-tools">
+        <label class="upload">＋ 圖片<input id="files" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple></label>
+        <label class="sr-only" for="workflow">工作流</label>
+        <select id="workflow"><option value="quick">快速生成</option><option value="pose">Qwen 2.1</option></select>
+        <button id="send" class="primary" type="submit">送出 ↑</button>
+      </div>
+      <p class="note">由你的電腦生成 · 圖片修改提示詞送出後隱藏</p>
+    </form>
+  </main>
+  <div id="toast" role="status" class="toast hidden"></div>
+  <script src="/static/mobile.js" defer></script>
+</body>
+</html>

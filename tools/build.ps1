@@ -10,8 +10,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Cargo release build failed.' }
 
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 Copy-Item -LiteralPath $release -Destination (Join-Path $dist '千迷AI.exe') -Force
-$versioned = Join-Path $dist '千迷AI-0.2.4.exe'
+$version = (Get-Content -LiteralPath (Join-Path $repoRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json).version
+$versioned = Join-Path $dist "千迷AI-$version.exe"
 Copy-Item -LiteralPath $release -Destination $versioned -Force
 $digest = (Get-FileHash -LiteralPath $versioned -Algorithm SHA256).Hash.ToLowerInvariant()
-Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Value "$digest  千迷AI-0.2.4.exe" -Encoding utf8
+Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Value "$digest  千迷AI-$version.exe" -Encoding utf8
 Write-Host "Build artifacts: $dist"

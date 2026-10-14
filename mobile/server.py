@@ -1,0 +1,423 @@
+"""Single-owner, authenticated HTTP gateway for the local GPU workstation."""
+from contextlib import asynccontextmanager, contextmanager
+import hashlib
+import hmac
+import io
+import json
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+from pathlib import Path
+import re
+import secrets
+import sqlite3
+import threading
+import time
+from urllib.parse import urlsplit
+import warnings
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+ROOT = Path(__file__).resolve().parents[1]
+STATIC = Path(__file__).parent / 'static'
+MAX_IMAGE = 12 * 1024 * 1024
+Image.MAX_IMAGE_PIXELS = 20_000_000
+LOG = logging.getLogger('qianmi.mobile')
+
+
+class Login(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    code: str = Field(min_length=1, max_length=128)
+
+
+class JobInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    prompt: str = Field(min_length=1, max_length=8000)
+    workflow: str = Field(pattern='^(quick|pose)$')
+    images: list[str] = Field(default_factory=list, max_length=4)
+    request_id: str = Field(pattern='^[a-f0-9]{32}$')
+
+
+def identifier(value):
+    if not re.fullmatch('[a-f0-9]{32}', value):
+        raise HTTPException(404, '找不到項目。')
+    return value
+
+
+async def body(request, limit):
+    chunks = bytearray()
+    async for chunk in request.stream():
+        if len(chunks) + len(chunk) > limit:
+            raise HTTPException(413, '上傳內容太大。')
+        chunks.extend(chunk)
+    return bytes(chunks)
+
+
+async def parse_json(request, model):
+    if request.headers.get('content-type', '').split(';')[0] != 'application/json':
+        raise HTTPException(415, '請使用 JSON 格式。')
+    try:
+        return model.model_validate_json(await body(request, 40_000))
+    except ValidationError:
+        raise HTTPException(422, '輸入格式錯誤，請檢查提示詞與圖片數量。') from None
+
+
+class Store:
+    def __init__(self, state, output):
+        self.state, self.output = Path(state), Path(output)
+        self.state.mkdir(parents=True, exist_ok=True)
+        self.output.mkdir(parents=True, exist_ok=True)
+        (self.state / 'uploads').mkdir(exist_ok=True)
+        self.database = self.state / 'mobile.sqlite3'
+        code_path = self.state / 'access-code.txt'
+        if not code_path.exists():
+            code_path.write_text(secrets.token_urlsafe(24), encoding='utf-8')
+        self.code_hash = hashlib.sha256(code_path.read_text(encoding='utf-8').strip().encode()).digest()
+        with self.connect() as db:
+            db.executescript('''
+                CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, csrf TEXT, expires REAL);
+                CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, created REAL);
+                CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, request_id TEXT UNIQUE,
+                    status TEXT, message TEXT, prompt TEXT, workflow TEXT, sources TEXT,
+                    results TEXT, created REAL, updated REAL);
+            ''')
+
+    @contextmanager
+    def connect(self):
+        db = sqlite3.connect(self.database, timeout=10)
+        db.row_factory = sqlite3.Row
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
+    def update(self, job_id, status, message, results=None):
+        with self.connect() as db:
+            if results is None:
+                db.execute('UPDATE jobs SET status=?,message=?,updated=? WHERE id=?',
+                           (status, message, time.time(), job_id))
+            else:
+                db.execute('UPDATE jobs SET status=?,message=?,results=?,updated=? WHERE id=?',
+                           (status, message, json.dumps(results), time.time(), job_id))
+
+    def session(self, request, mutate=False):
+        token = request.cookies.get('qianmi_session', '')
+        session_id = hashlib.sha256(token.encode()).hexdigest()
+        with self.connect() as db:
+            row = db.execute('SELECT * FROM sessions WHERE id=? AND expires>?', (session_id, time.time())).fetchone()
+        if not row:
+            raise HTTPException(401, '請先輸入私人連線碼。')
+        if mutate and not hmac.compare_digest(request.headers.get('x-qianmi-csrf', ''), row['csrf']):
+            raise HTTPException(403, '工作階段驗證失敗，請重新整理。')
+        return row
+
+    def job(self, job_id):
+        with self.connect() as db:
+            row = db.execute('SELECT * FROM jobs WHERE id=?', (identifier(job_id),)).fetchone()
+        if not row:
+            raise HTTPException(404, '找不到任務。')
+        return row
+
+    @staticmethod
+    def public_job(row):
+        sources = json.loads(row['sources'])
+        results = json.loads(row['results'])
+        return dict(id=row['id'], status=row['status'], message=row['message'], created=row['created'],
+                    prompt=row['prompt'] if not sources else '', workflow=row['workflow'],
+                    sources=[f'/api/uploads/{value}' for value in sources],
+                    results=[f'/api/jobs/{row["id"]}/images/{i}' for i in range(len(results))])
+
+    def cleanup(self):
+        cutoff = time.time() - 7 * 86400
+        with self.connect() as db:
+            active = {value for row in db.execute("SELECT sources FROM jobs WHERE status IN ('queued','running')")
+                      for value in json.loads(row['sources'])}
+            for row in db.execute('SELECT id FROM uploads WHERE created<?', (cutoff,)).fetchall():
+                if row['id'] not in active:
+                    (self.state / 'uploads' / f'{row["id"]}.png').unlink(missing_ok=True)
+                    db.execute('DELETE FROM uploads WHERE id=?', (row['id'],))
+            for row in db.execute("SELECT id FROM jobs WHERE created<? AND status NOT IN ('queued','running')", (cutoff,)).fetchall():
+                directory = self.output / row['id']
+                if directory.is_dir():
+                    for file in directory.iterdir():
+                        if file.is_file():
+                            file.unlink()
+                    directory.rmdir()
+                db.execute('DELETE FROM jobs WHERE id=?', (row['id'],))
+            db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
+
+
+def create_app(state_dir=None, output_dir=None, runner=None, public_url=None):
+    store = Store(state_dir or ROOT / '.runtime' / 'mobile', output_dir or ROOT / 'output' / 'mobile')
+    public_url = (public_url or os.environ.get('QIANMI_PUBLIC_URL', '')).rstrip('/')
+    if public_url and (urlsplit(public_url).scheme != 'https' or not urlsplit(public_url).hostname):
+        raise ValueError('QIANMI_PUBLIC_URL must be an HTTPS origin')
+    origins = {'http://127.0.0.1:8787', 'http://localhost:8787'}
+    hosts = ['127.0.0.1', 'localhost']
+    if public_url:
+        origins.add(public_url)
+        hosts.append(urlsplit(public_url).hostname)
+    stop = threading.Event()
+    wake = threading.Event()
+    attempts = []
+
+    def worker():
+        last_cleanup = time.monotonic()
+        while not stop.is_set():
+            with store.connect() as db:
+                row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
+            if not row:
+                if time.monotonic() - last_cleanup > 3600:
+                    try:
+                        store.cleanup()
+                    except OSError:
+                        LOG.warning('Retention cleanup postponed')
+                    last_cleanup = time.monotonic()
+                wake.wait(1)
+                wake.clear()
+                continue
+            job_id = row['id']
+            store.update(job_id, 'running', '正在準備電腦…')
+            LOG.info('Job started id=%s workflow=%s', job_id, row['workflow'])
+            try:
+                payload = dict(prompt=row['prompt'], workflow=row['workflow'])
+                sources = [store.state / 'uploads' / f'{value}.png' for value in json.loads(row['sources'])]
+                output = store.output / job_id
+                output.mkdir(exist_ok=True)
+                def progress(message, results=None):
+                    store.update(job_id, 'running', message, results)
+                if runner is None:
+                    from .generation import generate
+                    results = generate(payload, sources, output, progress)
+                else:
+                    results = runner(payload, sources, output, progress)
+                store.update(job_id, 'completed', '圖片完成，可以下載了。', results)
+                # Image-edit prompts never need to be retained after execution.
+                if sources:
+                    with store.connect() as db:
+                        db.execute("UPDATE jobs SET prompt='' WHERE id=?", (job_id,))
+                LOG.info('Job completed id=%s count=%s', job_id, len(results))
+            except Exception as exc:
+                # Upstream errors can contain prompts; log only the exception class.
+                LOG.error('Job failed id=%s exception=%s', job_id, type(exc).__name__)
+                store.update(job_id, 'failed', '生成失敗，請確認電腦的模型服務與顯示卡狀態。')
+            try:
+                store.cleanup()
+            except OSError:
+                LOG.warning('Retention cleanup postponed')
+
+    @asynccontextmanager
+    async def lifespan(app):
+        with store.connect() as db:
+            db.execute("UPDATE jobs SET status='failed',message='電腦服務已重新啟動，請重新提交。' WHERE status='running'")
+        store.cleanup()
+        thread = threading.Thread(target=worker, daemon=True, name='qianmi-gpu-worker')
+        app.state.worker = thread
+        thread.start()
+        LOG.info('Mobile service ready')
+        yield
+        stop.set()
+        wake.set()
+        thread.join()
+        LOG.info('Mobile service stopped')
+
+    app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.store = store
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)
+
+    @app.middleware('http')
+    async def security(request, call_next):
+        if request.method not in ('GET', 'HEAD', 'OPTIONS') and request.headers.get('origin') not in origins:
+            return JSONResponse({'detail': '不允許跨站請求。'}, status_code=403)
+        response = await call_next(request)
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        response.headers['Cache-Control'] = 'no-store' if request.url.path.startswith('/api/') else 'no-cache'
+        return response
+
+    @app.post('/api/login')
+    async def login(request: Request):
+        now = time.monotonic()
+        attempts[:] = [value for value in attempts if value > now - 300]
+        if len(attempts) >= 10:
+            raise HTTPException(429, '登入嘗試過多，請五分鐘後再試。')
+        value = await parse_json(request, Login)
+        if not hmac.compare_digest(hashlib.sha256(value.code.strip().encode()).digest(), store.code_hash):
+            attempts.append(now)
+            LOG.warning('Pairing denied')
+            raise HTTPException(401, '連線碼不正確。')
+        token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        with store.connect() as db:
+            db.execute('INSERT INTO sessions VALUES (?,?,?)',
+                       (hashlib.sha256(token.encode()).hexdigest(), csrf, time.time() + 7 * 86400))
+        response = JSONResponse({'csrf': csrf})
+        response.set_cookie('qianmi_session', token, httponly=True, secure=bool(public_url),
+                            samesite='strict', max_age=7 * 86400, path='/')
+        LOG.info('Device paired')
+        return response
+
+    @app.get('/api/session')
+    def session(request: Request):
+        row = store.session(request)
+        settings = ROOT / 'output' / 'qianmi_settings.json'
+        presets = []
+        if settings.is_file():
+            try:
+                presets = json.loads(settings.read_text(encoding='utf-8')).get('presets', [])
+            except (OSError, ValueError):
+                LOG.warning('Could not read desktop presets')
+        return dict(csrf=row['csrf'], presets=presets)
+
+    @app.post('/api/logout')
+    def logout(request: Request):
+        row = store.session(request, mutate=True)
+        with store.connect() as db:
+            db.execute('DELETE FROM sessions WHERE id=?', (row['id'],))
+        response = JSONResponse({'ok': True})
+        response.delete_cookie('qianmi_session')
+        return response
+
+    @app.post('/api/uploads')
+    async def upload(request: Request):
+        store.session(request, mutate=True)
+        with store.connect() as db:
+            count = db.execute('SELECT COUNT(*) FROM uploads WHERE created>?', (time.time() - 86400,)).fetchone()[0]
+        if count >= 200:
+            raise HTTPException(429, '今日圖片上傳量已達上限。')
+        if sum(file.stat().st_size for file in (store.state / 'uploads').glob('*.png')) > 2 * 1024**3:
+            raise HTTPException(429, '暫存圖片空間已滿，請在電腦清理舊圖片。')
+        data = await body(request, MAX_IMAGE)
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', Image.DecompressionBombWarning)
+                with Image.open(io.BytesIO(data)) as image:
+                    if image.format not in ('PNG', 'JPEG', 'WEBP', 'BMP'):
+                        raise ValueError('format')
+                    image.load()
+                    clean = ImageOps.exif_transpose(image).convert('RGB')
+        except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+            raise HTTPException(422, '請上傳有效的 JPG、PNG、WebP 或 BMP，最多 2000 萬像素。') from None
+        upload_id = secrets.token_hex(16)
+        clean.save(store.state / 'uploads' / f'{upload_id}.png', format='PNG')
+        with store.connect() as db:
+            db.execute('INSERT INTO uploads VALUES (?,?)', (upload_id, time.time()))
+        return {'id': upload_id, 'url': f'/api/uploads/{upload_id}'}
+
+    @app.get('/api/uploads/{upload_id}')
+    def uploaded_image(upload_id: str, request: Request):
+        store.session(request)
+        path = store.state / 'uploads' / f'{identifier(upload_id)}.png'
+        if not path.is_file():
+            raise HTTPException(404, '找不到圖片。')
+        return FileResponse(path, media_type='image/png')
+
+    @app.post('/api/jobs')
+    async def submit(request: Request):
+        store.session(request, mutate=True)
+        if stop.is_set():
+            raise HTTPException(503, '電腦正在安全關閉服務，請稍後再試。')
+        value = await parse_json(request, JobInput)
+        if not value.prompt.strip():
+            raise HTTPException(422, '請輸入提示詞。')
+        job_id, now = secrets.token_hex(16), time.time()
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            previous = db.execute('SELECT * FROM jobs WHERE request_id=?', (value.request_id,)).fetchone()
+            if previous:
+                return store.public_job(previous)
+            count = db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
+            if count >= 8:
+                raise HTTPException(429, '電腦目前排隊已滿，請稍後再試。')
+            for upload_id in value.images:
+                identifier(upload_id)
+                if not db.execute('SELECT id FROM uploads WHERE id=?', (upload_id,)).fetchone():
+                    raise HTTPException(422, '找不到上傳圖片，請重新選擇。')
+            db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?)',
+                       (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt.strip(),
+                        value.workflow, json.dumps(value.images), '[]', now, now))
+        wake.set()
+        LOG.info('Job queued id=%s', job_id)
+        return store.public_job(store.job(job_id))
+
+    @app.get('/api/jobs')
+    def jobs(request: Request):
+        store.session(request)
+        with store.connect() as db:
+            rows = db.execute('SELECT * FROM jobs ORDER BY created DESC LIMIT 30').fetchall()
+        return {'jobs': [store.public_job(row) for row in reversed(rows)]}
+
+    @app.get('/api/jobs/{job_id}')
+    def job(job_id: str, request: Request):
+        store.session(request)
+        return store.public_job(store.job(job_id))
+
+    @app.get('/api/jobs/{job_id}/images/{index}')
+    def result(job_id: str, index: int, request: Request):
+        store.session(request)
+        row = store.job(job_id)
+        results = json.loads(row['results'])
+        if not 0 <= index < len(results):
+            raise HTTPException(404, '圖片尚未完成。')
+        path = store.output / job_id / results[index]
+        return FileResponse(path, media_type='image/png', filename=f'千迷AI-{job_id[:8]}-{index + 1}.png',
+                            content_disposition_type='inline')
+
+    @app.get('/')
+    def home():
+        return FileResponse(STATIC / 'index.html')
+
+    @app.post('/api/control/drain')
+    def drain(request: Request):
+        supplied = hashlib.sha256(request.headers.get('x-qianmi-control', '').encode()).digest()
+        if request.url.hostname not in ('127.0.0.1', 'localhost') or not hmac.compare_digest(supplied, store.code_hash):
+            raise HTTPException(403, '不允許此操作。')
+        stop.set()
+        wake.set()
+        shutdown = getattr(app.state, 'request_shutdown', None)
+        if shutdown and not getattr(app.state, 'shutdown_started', False):
+            app.state.shutdown_started = True
+            shutdown()
+        return {'busy': app.state.worker.is_alive()}
+
+    @app.get('/sw.js')
+    def service_worker():
+        return FileResponse(STATIC / 'sw.js', media_type='application/javascript')
+
+    app.mount('/static', StaticFiles(directory=STATIC), name='static')
+    return app
+
+
+def main():
+    import uvicorn
+    state = ROOT / '.runtime' / 'mobile'
+    state.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(state / 'server.log', maxBytes=2_000_000, backupCount=3, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    LOG.setLevel(logging.INFO)
+    LOG.addHandler(handler)
+    # shortcut: exactly one process owns this personal workstation queue.
+    from .gpu import gpu_lock
+    with gpu_lock(timeout=0, path=state / 'server-instance.lock'):
+        application = create_app()
+        server = uvicorn.Server(uvicorn.Config(application, host='127.0.0.1', port=8787, workers=1,
+                                              access_log=False, proxy_headers=True,
+                                              forwarded_allow_ips='127.0.0.1', log_level='warning'))
+        def request_shutdown():
+            def finish():
+                application.state.worker.join()
+                server.should_exit = True
+            threading.Thread(target=finish, daemon=True).start()
+        application.state.request_shutdown = request_shutdown
+        server.run()
+
+
+if __name__ == '__main__':
+    main()

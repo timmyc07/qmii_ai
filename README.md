@@ -7,6 +7,7 @@
 - 快速生成：沿用 Qwen Image 2.1 Turbo 本機推理。
 - Qwen 2.1 工作流：整合上游 Route ① T2I 與 Route ② Edit。
 - 支援多張圖片依序修改、固定提示詞與自訂提示詞按鈕。
+- 手機網頁／PWA：私人連線碼登入，由自己的電腦GPU排隊生成並下載圖片。
 
 > VNCCS Route ④（136 個精確 3D 姿勢）需要額外的 VNCCS 節點、LoRA 與 CDP 瀏覽器控制器，目前不包含在產品介面中。
 
@@ -27,6 +28,10 @@
 建置腳本會將 portable EXE 複製到 `dist\千迷AI.exe`。`dist`、模型、日誌、生成圖片與本機工作流 runtime 均由 `.gitignore` 排除。
 
 更多資訊請見 [安裝與維運說明](docs/INSTALL.md)、[模型清單](docs/MODELS.md)、[工作流說明](docs/WORKFLOWS.md) 與 [卡密系統計畫](docs/LICENSING_PLAN.md)。
+
+## 手機使用
+
+執行 `powershell -ExecutionPolicy Bypass -File tools\start-mobile.ps1 -Public`，在 `.runtime\mobile\connection-info.txt` 取得手機HTTPS網址與私人連線碼。完整操作與停止方式見 [手機網頁說明](docs/MOBILE.md)。
 
 ## 第三方來源
 
