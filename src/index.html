@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#faf7ff">
+  <title>千迷AI</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="native-titlebar" id="native-titlebar">
+    <div class="titlebar-brand"><span class="titlebar-flower">✿</span><span>千迷AI</span><span class="titlebar-caption">♡ little image studio</span></div>
+    <div class="window-controls">
+      <button id="window-minimize" class="window-control minimize" aria-label="最小化" title="最小化"><span></span></button>
+      <button id="window-maximize" class="window-control maximize" aria-label="最大化" title="最大化"><span></span></button>
+      <button id="window-close" class="window-control close" aria-label="關閉" title="關閉"><span>×</span></button>
+    </div>
+  </div>
+  <div class="app-shell" id="app-shell">
+    <button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="收起魔法按鈕"></button>
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-mark">✦</div><div><strong>千迷AI</strong><span>本機圖片工作室</span></div></div>
+      <div class="side-title"><span>我的魔法按鈕</span><button id="manage-presets" class="icon-button" title="管理提示詞按鈕">⚙</button></div>
+      <div id="preset-list" class="preset-list"></div>
+      <button id="new-preset-shortcut" class="dashed-add"><span>＋</span> 新增我的按鈕</button>
+    </aside>
+
+    <main class="main-pane">
+      <header class="topbar"><div class="top-brand"><button id="sidebar-toggle" class="icon-button sidebar-toggle" aria-label="展開魔法按鈕" aria-controls="sidebar" aria-expanded="false">☷</button><span class="tiny-flower">✿</span><b>千迷AI</b><span class="local-pill"><i></i> 本機運行</span></div><div class="top-actions"><button id="fixed-settings" class="soft-button"><span>✧</span> 固定提示詞 <b id="fixed-state">未設定</b></button><button id="open-output" class="soft-button icon-label">▧ <span>作品集</span></button></div></header>
+
+      <section id="conversation" class="conversation">
+        <div id="welcome" class="welcome">
+          <div class="welcome-illustration"><div class="halo"></div><div class="magic-star">✦</div><span class="float-heart h1">♡</span><span class="float-heart h2">✧</span><span class="float-heart h3">✿</span></div>
+          <p class="eyebrow">WELCOME TO YOUR LITTLE STUDIO</p>
+          <h1>今天想創作什麼呢？<span>♡</span></h1>
+          <p class="welcome-copy">說說你的想法，或選張圖片，讓千迷AI陪你一起改造。</p>
+          <div class="idea-chips"><button class="idea-chip" data-prompt="一隻奶油色小貓窩在薰衣草花田裡，柔和晨光，童話繪本質感">🐈 奶油貓咪的花田</button><button class="idea-chip" data-prompt="把背景變成夢幻的粉紫色櫻花庭院，保留主體姿勢和光影">🌸 粉紫櫻花庭院</button><button class="idea-chip" data-prompt="柔和的底片攝影風格，暖暖夕陽，細膩自然的顆粒感">☁️ 溫柔底片日常</button></div>
+        </div>
+        <div id="feed" class="feed"></div>
+      </section>
+
+      <footer class="composer-area">
+        <div id="image-tray" class="image-tray hidden"></div>
+        <div class="composer-shell">
+          <textarea id="prompt" rows="2" placeholder="寫下你的靈感，或先上傳一張圖片…"></textarea>
+          <div class="composer-tools"><div class="composer-left"><button id="upload-images" class="upload-button"><span class="upload-icon">＋</span><span>上傳圖片</span></button><span id="batch-label" class="batch-label"></span></div><div class="composer-right"><label class="workflow-picker"><span>工作流</span><select id="workflow-mode" aria-label="選擇圖片工作流"><option value="quick">快速生成</option><option value="pose">Qwen 2.1 工作流</option></select></label><button id="send" class="send-button" title="開始創作"><span>↑</span></button></div></div>
+        </div>
+        <p class="composer-note">♡ 圖片都留在你的電腦裡　·　原圖不會被覆蓋</p>
+      </footer>
+    </main>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast" class="toast"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

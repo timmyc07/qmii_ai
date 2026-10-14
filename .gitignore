@@ -1,0 +1,33 @@
+# Rust / Tauri build cache
+src-tauri/target/
+src-tauri/gen/schemas/
+target/
+.build/
+__pycache__/
+*.py[cod]
+
+# Local runtime dependencies and model-adjacent files
+.runtime/
+models/
+*.safetensors
+*.gguf
+*.ckpt
+*.pt
+*.pth
+
+# Product outputs and local state
+dist/
+output/
+*.log
+.media-task.lock
+!src-tauri/Cargo.lock
+*.png.json
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+.env
+.env.*

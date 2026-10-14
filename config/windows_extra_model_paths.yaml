@@ -1,0 +1,6 @@
+qianmi:
+  base_path: D:/AI/ComfyUI-Models
+  diffusion_models: diffusion_models
+  text_encoders: text_encoders
+  vae: vae
+  loras: loras
