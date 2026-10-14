@@ -31,7 +31,7 @@
 
 ## 手機使用
 
-執行 `powershell -ExecutionPolicy Bypass -File tools\start-mobile.ps1 -Public`，在 `.runtime\mobile\connection-info.txt` 取得手機HTTPS網址與私人連線碼。完整操作與停止方式見 [手機網頁說明](docs/MOBILE.md)。
+桌面右上角點「手機連線」→「開啟手機連線」，即可查看並複製手機 HTTPS 網址與私人連線碼；不需手動執行指令。可在同一面板安全停止或重新連線。完整操作與停止方式見 [手機網頁說明](docs/MOBILE.md)。
 
 ## 第三方來源
 

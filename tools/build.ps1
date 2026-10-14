@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $manifest = Join-Path $repoRoot 'src-tauri\Cargo.toml'
@@ -10,7 +10,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Cargo release build failed.' }
 
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 Copy-Item -LiteralPath $release -Destination (Join-Path $dist '千迷AI.exe') -Force
-$version = (Get-Content -LiteralPath (Join-Path $repoRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json).version
+$version = (Get-Content -LiteralPath (Join-Path $repoRoot 'src-tauri\tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
 $versioned = Join-Path $dist "千迷AI-$version.exe"
 Copy-Item -LiteralPath $release -Destination $versioned -Force
 $digest = (Get-FileHash -LiteralPath $versioned -Algorithm SHA256).Hash.ToLowerInvariant()

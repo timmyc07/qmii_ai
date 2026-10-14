@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background_process;
+mod mobile_connection;
 
 use background_process::background_command;
 use serde::{Deserialize, Serialize};
@@ -655,6 +656,9 @@ fn main() {
             load_settings,
             save_settings,
             open_output_folder,
+            mobile_connection::mobile_status,
+            mobile_connection::start_mobile,
+            mobile_connection::stop_mobile,
             generate_images,
             window_minimize,
             window_toggle_maximize,

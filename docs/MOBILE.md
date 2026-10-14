@@ -2,7 +2,18 @@
 
 手機透過 HTTPS 網頁連接這台 Windows 電腦，由本機 GPU 執行 Turbo 或 Qwen 2.1。模型位置維持 `D:\AI`。本版本是單一擁有者的私人工作室，所有已配對的手機共用創作紀錄；正式商業卡密系統仍依 `LICENSING_PLAN.md` 另行實作。
 
-## 啟動
+## 桌面應用內使用（0.2.6 起）
+
+1. 開啟千迷AI，點頂部「手機連線」。
+2. 按「開啟手機連線」，等待手機服務與 HTTPS 通道啟動；首次需安裝 Python 套件，可能較久。
+3. 複製網址到自己的手機瀏覽器，並輸入面板中的私人連線碼。連線碼預設隱藏，可按「顯示連線碼」或直接複製。
+4. 不使用時按「停止連線」。若正在生成，面板會持續顯示停止中，等工作完成再關閉服務。
+
+預設不自動啟動。關閉桌面視窗不會停止手機服務，可重新開啟桌面面板管理；操作進行中請等待完成後再關閉視窗。重啟會換新網址。面板每十秒更新一次，關閉面板即停止輪詢；頂部徽章在開啟應用、面板及完成操作時更新。顯示「已開啟」代表本機服務與通道程序已通過檢查，不代表已偵測到手機登入或保證外部網路可達。
+
+狀態檢查會核對程序 PID、建立時間與本機 HTTP 回應，只有服務與通道有效時才提供網址及代碼。過期紀錄可按「重新連線」處理；若 PID 已被其他程序重用，會將原服務視為已結束並略過該程序，避免誤停其他工作。啟停具跨程序互斥鎖。操作事件在 `.runtime/mobile/desktop.log`，腳本錯誤在 `.runtime/mobile/desktop-control.log`，不記錄私人連線碼。
+
+## 指令啟動與疑難排解
 
 在 `D:\codes\qmii_ai` 執行：
 
@@ -71,6 +82,8 @@ powershell -ExecutionPolicy Bypass -File tools\stop-mobile.ps1
 runtime、密碼、圖片、日誌與編譯產物均由Git排除。
 
 ## 驗證
+
+新增桌面連線狀態與鎖測試：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\test-mobile-session.ps1`。前端互動／responsive 測試：`node tools/test-mobile-ui.cjs`（測試環境需提供 Playwright 與 Edge，支援以 NODE_PATH 指向既有套件）。
 
 ```powershell
 .runtime\mobile-venv\Scripts\python.exe -m unittest discover -s mobile\tests -v

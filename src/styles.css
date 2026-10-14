@@ -263,6 +263,12 @@ button:disabled { cursor: wait; opacity: .6; }
 .form-field input:focus, .form-field textarea:focus { border-color: #bea5db; box-shadow: 0 0 0 3px #decdec4a; }
 .form-field textarea { min-height: 8rem; max-height: 40dvh; resize: vertical; line-height: 1.6; overflow: auto; }
 .settings-tip { padding: .8rem .9rem; border-radius: 1rem; background: #f7f1fb; color: #8b7c97; font-size: .9rem; line-height: 1.6; }
+.mobile-error { color: #ad4866; overflow-wrap: anywhere; line-height: 1.6; }
+.mobile-error:empty { display: none; }
+.mobile-help { color: var(--muted); font-size: .85rem; line-height: 1.7; }
+.mobile-code-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+#mobile-details { min-width: 0; }
+#mobile-details input { min-width: 0; font-family: ui-monospace, monospace; }
 
 @media (max-width: 48rem) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }

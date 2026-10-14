@@ -137,6 +137,97 @@ function openFixedEditor() {
   };
 }
 
+const mobile = { status: null, busy: '', error: '', revision: 0, panel: null };
+
+function renderMobileConnection() {
+  const info = mobile.status;
+  const badge = mobile.busy ? (mobile.busy.startsWith('停止') ? '停止中…' : '開啟中…') : '';
+  $('mobile-state').textContent = badge || (mobile.error ? '需檢查' : info?.running ? '已開啟' : '未開啟');
+  const panel = mobile.panel;
+  if (!panel || !modalRoot.contains(panel)) return;
+  panel.querySelector('#mobile-status').textContent = mobile.busy || info?.message || '正在查詢連線狀態…';
+  panel.querySelector('#mobile-error').textContent = mobile.error;
+  const ready = Boolean(info?.running && !mobile.busy && !mobile.error);
+  panel.querySelector('#mobile-details').classList.toggle('hidden', !ready);
+  panel.querySelector('#mobile-url').value = ready ? info.url : '';
+  panel.querySelector('#mobile-code').value = ready ? info.code : '';
+  const start = panel.querySelector('#mobile-start');
+  start.textContent = info?.registered ? '重新連線' : '開啟手機連線';
+  start.classList.toggle('hidden', ready);
+  start.disabled = Boolean(mobile.busy || !info);
+  panel.querySelector('#mobile-stop').disabled = Boolean(mobile.busy || !info?.registered);
+  panel.querySelector('#mobile-refresh').disabled = Boolean(mobile.busy);
+}
+
+async function refreshMobileConnection() {
+  if (mobile.busy) return;
+  const revision = ++mobile.revision;
+  try {
+    const info = await invoke('mobile_status');
+    if (revision !== mobile.revision) return;
+    mobile.status = info; mobile.error = '';
+  } catch (error) {
+    if (revision !== mobile.revision) return;
+    mobile.status = null; mobile.error = String(error);
+  }
+  renderMobileConnection();
+}
+
+async function controlMobileConnection(start) {
+  if (mobile.busy) return;
+  ++mobile.revision;
+  mobile.busy = start ? '正在開啟…' : '停止中，等待目前生成完成…';
+  mobile.error = '';
+  renderMobileConnection();
+  try {
+    mobile.status = await invoke(start ? 'start_mobile' : 'stop_mobile');
+    toast(start ? '手機連線已開啟' : '手機連線已停止');
+  } catch (error) {
+    mobile.status = null; mobile.error = String(error);
+  } finally {
+    mobile.busy = ''; renderMobileConnection();
+  }
+}
+
+function openMobileConnection() {
+  let timer;
+  const panel = openModal('手機連線', `
+    <p class="modal-subtitle">用手機瀏覽器連接這台電腦，生成、修改與下載圖片。</p>
+    <p id="mobile-status" class="settings-tip" role="status" aria-live="polite"></p>
+    <p id="mobile-error" class="mobile-error" role="alert"></p>
+    <div id="mobile-details" class="hidden">
+      <label class="form-field"><span>① 在手機開啟這個網址</span><input id="mobile-url" readonly aria-label="手機網址"></label>
+      <button id="mobile-copy-url" class="secondary-button">複製網址</button>
+      <label class="form-field"><span>② 輸入私人連線碼</span><input id="mobile-code" type="password" readonly aria-label="私人連線碼" autocomplete="off"></label>
+      <div class="mobile-code-actions"><button id="mobile-show-code" class="secondary-button" aria-pressed="false">顯示連線碼</button><button id="mobile-copy-code" class="secondary-button">複製連線碼</button></div>
+    </div>
+    <p class="mobile-help">電腦需保持開機、連網並避免休眠。重新開啟後網址會變更，請勿分享私人連線碼。關閉桌面視窗後連線仍會保留，可回此面板停止。</p>
+    <div class="modal-actions"><button id="mobile-refresh" class="secondary-button">重新整理</button><button id="mobile-stop" class="secondary-button">停止連線</button><button id="mobile-start" class="primary-button">開啟手機連線</button></div>`, () => { clearInterval(timer); });
+  mobile.panel = panel;
+  panel.querySelector('#mobile-start').onclick = () => controlMobileConnection(true);
+  panel.querySelector('#mobile-stop').onclick = () => controlMobileConnection(false);
+  panel.querySelector('#mobile-refresh').onclick = refreshMobileConnection;
+  panel.querySelector('#mobile-show-code').onclick = event => {
+    const input = panel.querySelector('#mobile-code');
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    event.currentTarget.textContent = show ? '隱藏連線碼' : '顯示連線碼';
+    event.currentTarget.setAttribute('aria-pressed', String(show));
+  };
+  for (const field of ['url', 'code']) panel.querySelector(`#mobile-copy-${field}`).onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(panel.querySelector(`#mobile-${field}`).value);
+      toast(field === 'url' ? '手機網址已複製' : '私人連線碼已複製');
+    } catch { toast('無法存取剪貼簿，請選取欄位內容手動複製。'); }
+  };
+  renderMobileConnection();
+  refreshMobileConnection();
+  timer = setInterval(() => {
+    if (!modalRoot.contains(panel)) { clearInterval(timer); return; }
+    refreshMobileConnection();
+  }, 10000);
+}
+
 function appendUserMessage(text, images) {
   const node = document.createElement('article'); node.className = 'message user-message';
   if (images.length) {
@@ -225,6 +316,7 @@ async function init() {
   // editor mistakes the event object for an existing preset and opens in edit mode.
   $('new-preset-shortcut').onclick = () => openPresetEditor();
   $('fixed-settings').onclick = openFixedEditor;
+  $('mobile-connection').onclick = openMobileConnection;
   $('sidebar-toggle').onclick = () => setSidebarOpen(!$('app-shell').classList.contains('sidebar-open'));
   $('sidebar-backdrop').onclick = () => setSidebarOpen(false);
   $('open-output').onclick = async () => { try { await invoke('open_output_folder'); } catch (e) { toast(`無法開啟作品集：${e}`); } };
@@ -259,6 +351,7 @@ async function init() {
     state.fixedPrompt = settings.fixedPrompt ?? '';
   } catch (e) { toast(`載入設定失敗：${e}`); }
   renderPresets(); renderFixedState(); resizePrompt();
+  refreshMobileConnection();
 }
 
 init();

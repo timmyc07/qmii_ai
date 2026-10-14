@@ -22,9 +22,9 @@ powershell -ExecutionPolicy Bypass -File tools\verify-models.ps1
 powershell -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-成品位於 `dist\千迷AI.exe` 與 `dist\千迷AI-0.2.5.exe`。Rust 編譯快取位於 `src-tauri\target`，不會提交到 Git。
+成品位於 `dist\千迷AI.exe` 與 `dist\千迷AI-0.2.6.exe`。Rust 編譯快取位於 `src-tauri\target`，不會提交到 Git。
 
-手機網頁與PWA的啟動、私人連線碼及HTTPS連線方式見 [手機使用說明](MOBILE.md)。桌面版0.2.5新增與手機服務共用的GPU鎖。
+手機網頁與PWA的啟動、私人連線碼及HTTPS連線方式見 [手機使用說明](MOBILE.md)。桌面版0.2.5新增與手機服務共用的GPU鎖，0.2.6新增應用內手機連線面板。手機功能仍依賴 `D:\codes\qmii_ai` 內的 `tools`、`mobile`、Python 3.12+ 虛擬環境與 `.runtime\cloudflared.exe`；僅複製 EXE 到其他電腦不足以提供手機服務。
 
 ## 執行與疑難排解
 

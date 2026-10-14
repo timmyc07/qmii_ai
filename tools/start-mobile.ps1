@@ -1,11 +1,18 @@
-param([switch]$Public)
+﻿param([switch]$Public)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $repoRoot '.runtime\mobile-venv\Scripts\python.exe'
 $state = Join-Path $repoRoot '.runtime\mobile'
+. (Join-Path $PSScriptRoot 'mobile-session.ps1')
+$controlLock = Open-MobileControlLock $state
+try {
 New-Item -ItemType Directory -Path $state -Force | Out-Null
 if (Test-Path -LiteralPath (Join-Path $state 'processes.json')) {
-    throw 'A mobile session is already registered. Run tools\stop-mobile.ps1 first.'
+    $saved = Get-Content -LiteralPath (Join-Path $state 'processes.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $savedServer = Get-RegisteredMobileProcess $saved.server
+    $savedTunnel = Get-RegisteredMobileProcess $saved.tunnel
+    if ($savedServer -or $savedTunnel) { throw 'Run tools\stop-mobile.ps1 before restarting the mobile session.' }
+    Remove-Item -LiteralPath (Join-Path $state 'processes.json') -Force
 }
 if (-not (Test-Path -LiteralPath $python)) {
     python -m venv (Join-Path $repoRoot '.runtime\mobile-venv')
@@ -43,7 +50,7 @@ try {
         if ($ready -and $ready.StatusCode -eq 200) { break }
     } while ((Get-Date) -lt $deadline)
     if (-not $ready) { throw 'Mobile service startup timed out.' }
-    $processes = @{ server = @{ id = $server.Id; started = $server.StartTime.ToUniversalTime().ToString('o') } }
+    $processes = @{ publicUrl = $publicUrl; server = @{ id = $server.Id; started = $server.StartTime.ToUniversalTime().ToString('o') } }
     if ($tunnel) { $processes.tunnel = @{ id = $tunnel.Id; started = $tunnel.StartTime.ToUniversalTime().ToString('o') } }
     $processes | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $state 'processes.json') -Encoding utf8
     $url = if ($publicUrl) { $publicUrl } else { 'http://127.0.0.1:8787' }
@@ -58,3 +65,8 @@ try {
 } finally {
     Remove-Item Env:\QIANMI_PUBLIC_URL -ErrorAction SilentlyContinue
 }
+
+} catch {
+    Add-Content -LiteralPath (Join-Path $state 'desktop-control.log') -Value "$(Get-Date -Format o) start failed: $($_.Exception.Message)" -Encoding UTF8
+    throw
+} finally { $controlLock.Dispose() }
