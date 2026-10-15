@@ -10,10 +10,10 @@
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="stylesheet" href="/static/mobile.css">
-  <title>千迷AI · 隨身創作</title>
+  <title>千迷AI · 跨裝置工作室</title>
 </head>
 <body>
-  <header><a class="brand" href="/">✿ 千迷AI <span>隨身創作</span></a><button id="logout" class="quiet hidden">登出</button></header>
+  <header><a class="brand" href="/">✿ 千迷AI <span>跨裝置工作室</span></a><button id="logout" class="quiet hidden">登出</button></header>
   <main id="login-view" class="login-view">
     <section class="login-card">
       <div class="flower" aria-hidden="true">✿</div>
@@ -30,24 +30,42 @@
     </section>
   </main>
   <main id="studio" class="studio hidden">
-    <div class="toolbar"><span class="online">● 已連接私人工作室</span><button id="install" class="quiet hidden">加入主畫面</button></div>
+    <div class="toolbar"><span id="connection" class="online" role="status">● 已連接私人工作室</span><button id="install" class="quiet hidden">加入主畫面</button></div>
+    <aside class="settings-panel" aria-label="共用創作設定">
+      <details class="identity-settings"><summary>使用者與設備</summary>
+        <label for="identity-user">使用者名稱（自行填寫）</label><input id="identity-user" maxlength="100" placeholder="例如：小迷">
+        <label for="identity-device">設備名稱</label><input id="identity-device" maxlength="100" placeholder="例如：小迷的 iPhone">
+        <button id="save-identity" class="quiet" type="button">儲存本設備身分</button>
+        <p class="note">僅影響之後提交的任務；名稱並非帳號身分驗證。</p>
+      </details>
+      <h2>我的魔法按鈕</h2><div id="presets" class="presets"></div>
+      <button id="new-preset" type="button" class="quiet">＋ 新增按鈕</button>
+      <details id="parameter-panel"><summary>生成參數</summary><p class="note">留白使用配方。膨脹／羽化適用於 Chroma 人臉修復範本。</p><div id="generation-parameters" class="parameter-grid"></div><button id="reset-parameters" class="quiet" type="button">還原配方</button></details><h2>固定提示詞</h2><label for="fixed">每次自動加入的提示詞</label>
+      <textarea id="fixed" rows="4" maxlength="4000" placeholder="例如：保留人物五官、自然光線…"></textarea>
+      <div class="setting-actions"><button id="save-settings" type="button" class="primary">儲存共用設定</button><button id="reload-settings" type="button" class="quiet">重新載入</button></div>
+      <p id="settings-status" class="note" role="status">所有已配對設備共用</p>
+      <button id="show-library" type="button" class="quiet">▧ 開啟作品庫</button>
+    </aside>
+    <section id="library" class="library hidden" aria-label="共用作品庫"><h2>作品庫</h2><p>包含既有桌面作品及所有設備生成的圖片。</p><button id="close-library" class="quiet" type="button">返回創作</button><div id="artworks" class="artworks"></div><button id="more-artworks" class="quiet" type="button">載入更多</button></section>
     <section id="feed" class="feed" aria-label="創作紀錄" aria-live="polite">
       <div id="welcome" class="welcome"><span aria-hidden="true">✧</span><h1>今天，想創作什麼？</h1><p>寫下想法，或上傳圖片開始改造。</p></div>
     </section>
     <form id="composer" class="composer">
       <div id="tray" class="tray" aria-label="待處理圖片"></div>
-      <details><summary>固定提示詞與常用按鈕</summary><label for="fixed">每次自動加入的提示詞</label><textarea id="fixed" rows="2" maxlength="4000" placeholder="例如：保留人物五官、自然光線…"></textarea><div id="presets" class="presets"></div></details>
       <label for="prompt" class="sr-only">圖片生成或修改提示詞</label>
       <textarea id="prompt" rows="2" maxlength="8000" placeholder="說說你的想法…"></textarea>
       <div class="composer-tools">
         <label class="upload">＋ 圖片<input id="files" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple></label>
         <label class="sr-only" for="workflow">工作流</label>
-        <select id="workflow"><option value="quick">快速生成</option><option value="pose">Qwen 2.1</option></select>
+        <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option><option value="pose">qwen21-nsfw-pose-skill</option><option value="chroma">Chroma1-HD</option><option value="flux">FLUX.1-dev</option><option value="wan">Wan 2.2 5B 影片</option><option value="wan_template">Wan 2.2 雙模型範本</option></select>
         <button id="send" class="primary" type="submit">送出 ↑</button>
       </div>
-      <p class="note">由你的電腦生成 · 圖片修改提示詞送出後隱藏</p>
+      <div class="lora-controls"><label for="lora-choice">LoRA<select id="lora-choice"><option value="">不使用 LoRA</option></select></label><label for="lora-strength">強度 <output id="lora-strength-value">1.00</output><input id="lora-strength" type="range" min="0" max="2" step="0.05" value="1" disabled></label></div><p id="lora-help" class="note"></p>
+      <p class="note">由你的電腦生成 · 完整 Prompt 與來源保留於共用任務</p>
     </form>
   </main>
+  <dialog id="preset-editor"><form id="preset-form"><h2>常用提示詞按鈕</h2><label for="preset-name">名稱</label><input id="preset-name" required maxlength="100"><label for="preset-prompt">提示詞</label><textarea id="preset-prompt" required rows="5" maxlength="8000"></textarea><div class="setting-actions"><button type="submit" class="primary">儲存按鈕</button><button id="delete-preset" type="button" class="quiet">刪除</button><button id="cancel-preset" type="button" class="quiet">取消</button></div></form></dialog>
+  <dialog id="preview"><button id="close-preview" class="quiet" type="button">關閉預覽</button><img id="preview-image" alt="作品預覽"><a id="preview-download">↓ 下載作品</a></dialog>
   <div id="toast" role="status" class="toast hidden"></div>
   <script src="/static/mobile.js" defer></script>
 </body>

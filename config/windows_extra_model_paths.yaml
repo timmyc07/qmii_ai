@@ -1,6 +1,14 @@
 qianmi:
   base_path: D:/AI/ComfyUI-Models
+  checkpoints: checkpoints
   diffusion_models: diffusion_models
+  unet: unet
+  clip_vision: clip_vision
   text_encoders: text_encoders
   vae: vae
   loras: loras
+  controlnet: controlnet
+  upscale_models: upscale_models
+  sams: sams
+  ultralytics: ultralytics
+  ultralytics_bbox: ultralytics/bbox

@@ -2355,7 +2355,7 @@ dependencies = [
 
 [[package]]
 name = "qianmi-ai"
-version = "0.2.6"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",

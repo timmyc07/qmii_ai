@@ -20,15 +20,15 @@
     <button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="收起魔法按鈕"></button>
     <aside class="sidebar" id="sidebar">
       <div class="brand"><div class="brand-mark">✦</div><div><strong>千迷AI</strong><span>本機圖片工作室</span></div></div>
-      <div class="side-title"><span>我的魔法按鈕</span><button id="manage-presets" class="icon-button" title="管理提示詞按鈕">⚙</button></div>
+      <div class="side-title"><span>我的魔法按鈕</span><div class="side-title-actions"><button id="manage-presets" class="icon-button" title="管理提示詞按鈕">⚙</button><button id="sidebar-collapse" class="icon-button sidebar-collapse" title="收起左側欄" aria-label="收起左側欄">‹</button></div></div>
       <div id="preset-list" class="preset-list"></div>
       <button id="new-preset-shortcut" class="dashed-add"><span>＋</span> 新增我的按鈕</button>
     </aside>
 
     <main class="main-pane">
-      <header class="topbar"><div class="top-brand"><button id="sidebar-toggle" class="icon-button sidebar-toggle" aria-label="展開魔法按鈕" aria-controls="sidebar" aria-expanded="false">☷</button><span class="tiny-flower">✿</span><b>千迷AI</b><span class="local-pill"><i></i> 本機運行</span></div><div class="top-actions"><button id="mobile-connection" class="soft-button" title="手機連線與私人連線碼">▯ <span>手機連線</span><b id="mobile-state">未開啟</b></button><button id="fixed-settings" class="soft-button"><span>✧</span> 固定提示詞 <b id="fixed-state">未設定</b></button><button id="open-output" class="soft-button icon-label">▧ <span>作品集</span></button></div></header>
+      <header class="topbar"><div class="top-brand"><button id="sidebar-toggle" class="icon-button sidebar-toggle" aria-label="展開魔法按鈕" aria-controls="sidebar" aria-expanded="false">☷</button><span class="tiny-flower">✿</span><b>千迷AI</b><span class="local-pill"><i></i> 本機運行</span></div><div class="top-actions"><button id="mobile-connection" class="soft-button" title="手機連線與私人連線碼">▯ <span>手機連線</span><b id="mobile-state">未開啟</b></button><button id="fixed-settings" class="soft-button"><span>✧</span> 固定提示詞 <b id="fixed-state">未設定</b></button><button id="creation-toggle" class="soft-button" aria-controls="creation-panel" aria-expanded="false">✧ <span>創作設定</span></button><button id="shared-jobs" class="soft-button">共用任務</button><button id="open-output" class="soft-button icon-label">▧ <span>作品集</span></button></div></header>
 
-      <section id="conversation" class="conversation">
+      <section id="conversation" class="conversation" tabindex="0" aria-label="創作對話">
         <div id="welcome" class="welcome">
           <div class="welcome-illustration"><div class="halo"></div><div class="magic-star">✦</div><span class="float-heart h1">♡</span><span class="float-heart h2">✧</span><span class="float-heart h3">✿</span></div>
           <p class="eyebrow">WELCOME TO YOUR LITTLE STUDIO</p>
@@ -40,14 +40,25 @@
       </section>
 
       <footer class="composer-area">
+        <button id="latest-message" class="latest-message hidden" type="button">↓ 回到最新</button>
         <div id="image-tray" class="image-tray hidden"></div>
         <div class="composer-shell">
           <textarea id="prompt" rows="2" placeholder="寫下你的靈感，或先上傳一張圖片…"></textarea>
-          <div class="composer-tools"><div class="composer-left"><button id="upload-images" class="upload-button"><span class="upload-icon">＋</span><span>上傳圖片</span></button><span id="batch-label" class="batch-label"></span></div><div class="composer-right"><label class="workflow-picker"><span>工作流</span><select id="workflow-mode" aria-label="選擇圖片工作流"><option value="quick">快速生成</option><option value="pose">Qwen 2.1 工作流</option></select></label><button id="send" class="send-button" title="開始創作"><span>↑</span></button></div></div>
+          <div class="composer-tools"><div class="composer-left"><button id="upload-images" class="upload-button"><span class="upload-icon">＋</span><span>上傳圖片</span></button><span id="batch-label" class="batch-label"></span></div><div class="composer-right"><button id="send" class="send-button" title="開始創作"><span>↑</span></button></div></div>
         </div>
         <p class="composer-note">♡ 圖片都留在你的電腦裡　·　原圖不會被覆蓋</p>
       </footer>
     </main>
+    <button id="creation-backdrop" class="creation-backdrop" aria-label="收起創作設定"></button>
+    <aside id="creation-panel" class="creation-panel" aria-label="創作設定">
+      <div class="side-title"><span>✧ 創作設定</span><button id="creation-close" class="icon-button" aria-label="收起創作設定">×</button></div>
+      <p class="creation-intro">選擇工作流，再搭配適用的 LoRA。</p>
+      <div class="creation-section"><h2>生成模式</h2><div class="workflow-picker"><span class="workflow-caption">工作流</span><select id="workflow-mode" class="workflow-native" aria-hidden="true" tabindex="-1"><option value="quick">快速生成</option><option value="reference">多圖參考生成</option><option value="pose">qwen21-nsfw-pose-skill</option><option value="chroma">Chroma1-HD</option><option value="flux">FLUX.1-dev</option><option value="chroma_hades" disabled>chromaHDSimpleWorkflowMulti_v30.zip</option><option value="chroma_full" disabled>comfyuiChroma1HdFull_v10.zip</option><option value="wan">Wan 2.2 5B 影片</option><option value="wan_template" disabled>Wan 2.2 雙模型範本</option></select><button type="button" id="workflow-trigger" class="workflow-trigger" aria-haspopup="listbox" aria-expanded="false"><span id="workflow-value">快速生成</span><span class="workflow-chevron" aria-hidden="true"></span></button><div id="workflow-menu" class="workflow-menu" role="listbox" aria-label="選擇圖片工作流"><button type="button" role="option" data-value="quick" aria-selected="true">快速生成</button><button type="button" role="option" data-value="reference" aria-selected="false">多圖參考生成</button><button type="button" role="option" data-value="pose" aria-selected="false">qwen21-nsfw-pose-skill</button><button type="button" role="option" data-value="chroma" aria-selected="false">Chroma1-HD</button><button type="button" role="option" data-value="flux" aria-selected="false">FLUX.1-dev</button><button type="button" role="option" data-value="chroma_hades" aria-selected="false" disabled>chromaHDSimpleWorkflowMulti_v30.zip</button><button type="button" role="option" data-value="chroma_full" aria-selected="false" disabled>comfyuiChroma1HdFull_v10.zip</button><button type="button" role="option" data-value="wan" aria-selected="false">Wan 2.2 5B 影片</button><button type="button" role="option" data-value="wan_template" aria-selected="false" disabled>Wan 2.2 雙模型範本</button></div></div><p id="workflow-help" class="creation-help">快速生成支援文字生圖與逐張圖片修改。</p></div>
+      <div class="creation-section"><label for="lora-choice">LoRA 範本</label><select id="lora-choice"><option value="">不使用 LoRA</option></select><p id="lora-help" class="creation-help" aria-live="polite">快速生成與多圖參考不套用 ComfyUI LoRA。</p>
+      <label for="lora-strength">LoRA 強度 <output id="lora-strength-value" for="lora-strength">1.0</output></label><input id="lora-strength" type="range" min="0" max="2" step="0.05" value="1" disabled></div>
+      <div class="creation-section"><h2>生成參數</h2><p class="creation-help">留白沿用配方。參數會記錄在任務中，方便重現。</p><div id="generation-parameters" class="parameter-grid"></div><p id="parameter-help" class="creation-help">遮罩膨脹／羽化適用於 Chroma 人臉修復範本。</p><button id="save-parameters" class="secondary-button">儲存為此模式預設</button><button id="reset-parameters" class="secondary-button">還原配方</button></div><div class="creation-section"><h2>新增的 ComfyUI 範本</h2><div id="template-list" class="template-list">正在讀取範本資訊…</div></div>
+      <div class="creation-section"><h2>適配性檢查</h2><div id="library-status" class="creation-help" aria-live="polite">正在讀取 LoRA 資訊…</div><button id="refresh-library" class="secondary-button">重新檢查</button></div>
+    </aside>
   </div>
 
   <div id="modal-root"></div>

@@ -1,0 +1,143 @@
+{
+  "loras": [
+    {
+      "id": "qwen_alpacas",
+      "name": "NSFW Qwen by TheseAlpacas V2.safetensors",
+      "file": "NSFW Qwen by TheseAlpacas V2.safetensors",
+      "workflow": "pose",
+      "modes": [
+        "t2i",
+        "edit"
+      ],
+      "description": "Qwen 人物風格；架構相符，效果尚待實測。"
+    },
+    {
+      "id": "qwen_posture",
+      "name": "nsfw-posture-v3.safetensors",
+      "file": "nsfw-posture-v3.safetensors",
+      "workflow": "pose",
+      "modes": [
+        "t2i",
+        "edit"
+      ],
+      "description": "Qwen 2.1 姿態；依模型 metadata 分類。"
+    },
+    {
+      "id": "qwen_edit",
+      "name": "Qwen-Image-2.1 NSFW Image EditV3.safetensors",
+      "file": "Qwen-Image-2.1 NSFW Image EditV3.safetensors",
+      "workflow": "pose",
+      "modes": [
+        "edit"
+      ],
+      "description": "依檔名判定為圖片編輯，需先上傳圖片。"
+    },
+    {
+      "id": "qwen_outfit",
+      "name": "qwen-image-2.1-outfit-swap.safetensors",
+      "file": "qwen-image-2.1-outfit-swap.safetensors",
+      "workflow": "pose",
+      "modes": [
+        "edit"
+      ],
+      "description": "Qwen 服裝編輯，需先上傳圖片。"
+    },
+    {
+      "id": "qwen_fullbody",
+      "name": "qwen21_fullbody_pass2_fp16.safetensors",
+      "file": "qwen21_fullbody_pass2_fp16.safetensors",
+      "workflow": "pose",
+      "modes": [
+        "t2i",
+        "edit"
+      ],
+      "description": "Qwen 全身構圖；架構相符，效果尚待實測。"
+    },
+    {
+      "id": "qwen_anatomy",
+      "name": "qwen2_1-femaledVaginus-nsfw-v1_3-fine_L22-31.safetensors",
+      "file": "qwen2_1-femaledVaginus-nsfw-v1_3-fine_L22-31.safetensors",
+      "workflow": "pose",
+      "modes": [
+        "t2i",
+        "edit"
+      ],
+      "description": "Qwen 2.1 人物細節，沿用既有模型。"
+    },
+    {
+      "id": "flux_figure",
+      "name": "Female_Figure.safetensors",
+      "file": "Female_Figure.safetensors",
+      "workflow": "flux",
+      "modes": [
+        "t2i"
+      ],
+      "description": "使用 FLUX.1-dev 文字生圖；不適用於 Qwen 或 Chroma。可調整 LoRA 強度。"
+    },
+    {
+      "id": "flux_anatomy",
+      "name": "scg-anatomy-female-v2.safetensors",
+      "file": "scg-anatomy-female-v2.safetensors",
+      "workflow": "flux",
+      "modes": [
+        "t2i"
+      ],
+      "description": "使用 FLUX.1-dev 文字生圖；不適用於 Qwen 或 Chroma。可調整 LoRA 強度。"
+    },
+    {
+      "id": "flux_undressing",
+      "name": "undressing_flux_v3.safetensors",
+      "file": "undressing_flux_v3.safetensors",
+      "workflow": "flux",
+      "modes": [
+        "t2i"
+      ],
+      "description": "使用 FLUX.1-dev 文字生圖；不適用於 Qwen 或 Chroma。可調整 LoRA 強度。"
+    },
+    {
+      "id": "wan_style",
+      "name": "NSFW-22-H-e8.safetensors",
+      "file": "NSFW-22-H-e8.safetensors",
+      "workflow": "wan_template",
+      "modes": [
+        "edit"
+      ],
+      "description": "Wan 14B 高噪聲階段 LoRA；不適用於 5B。架構維度已確認，效果尚待實測。"
+    },
+    {
+      "id": "wan_xray",
+      "name": "X-ray_creampie_high.safetensors",
+      "file": "X-ray_creampie_high.safetensors",
+      "workflow": "wan_template",
+      "modes": [
+        "edit"
+      ],
+      "description": "Wan 14B 高噪聲階段 LoRA；不適用於 5B。架構維度已確認，效果尚待實測。"
+    }
+  ],
+  "templates": [
+    {
+      "name": "chromaHDSimpleWorkflowMulti_v30.zip",
+      "archive": "chromaHDSimpleWorkflowMulti_v30.zip",
+      "description": "Velvet Chroma FP16 文字生圖 → 人臉細節修復 → 2 倍分塊放大，輸出 1792 × 2304；不接受參考圖。",
+      "id": "chroma_hades"
+    },
+    {
+      "name": "comfyuiChroma1HdFull_v10.zip",
+      "archive": "comfyuiChroma1HdFull_v10.zip",
+      "description": "姿態參考 → 色彩與曲線 → 細節修復 → 兩階段擴圖 → 最終放大，輸出約 4669 × 4669。第 1 張圖提供姿態，第 2 張圖可提供色彩。",
+      "id": "chroma_full"
+    },
+    {
+      "id": "wan",
+      "name": "Wan 2.2 5B",
+      "description": "已安裝的 5B 模型；文字或 1 張起始圖片生成 MP4。預設 640 × 384、49 幀、24 FPS。"
+    },
+    {
+      "id": "wan_template",
+      "name": "Wan 2.2 雙模型範本",
+      "archive": "wan22NSFWI2VWorkflowOrSFW_v10.zip",
+      "description": "下載範本的高／低噪聲雙階段流程，使用下載的 Q8 高噪聲模型。需要 1 張起始圖；輸出原生 16 FPS MP4，未包含 FILM 補幀與音效。"
+    }
+  ]
+}

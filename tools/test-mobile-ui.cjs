@@ -30,6 +30,7 @@ const { chromium } = require('playwright');
             const test = window.testMobile;
             test.calls.push(name);
             if (name === 'load_settings') return { presets: [], fixedPrompt: '' };
+            if (name === 'studio_jobs') return { jobs: [{ id: 'fixture', workflow: 'quick', prompt: '其他設備提交', message: '已排隊', created: 1792000000, started: 1792000001, finished: 1792000010, origin: { platform: 'Windows 桌面', device: '<測試電腦>', user: '小迷', device_id: 'fixture-device' }, results: [] }] };
             if (name === 'mobile_status') {
               if (test.fail) throw new Error('Test status failure');
               return test.info;
@@ -49,6 +50,25 @@ const { chromium } = require('playwright');
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.click('#mobile-connection');
     await page.waitForFunction(() => !document.querySelector('#mobile-start').disabled);
+    await page.keyboard.press('Escape');
+    await page.click('#shared-jobs');
+    await page.waitForFunction(() => document.querySelector('#shared-job-list').textContent.includes('其他設備提交'));
+    assert.match(await page.locator('#shared-job-list').innerText(), /小迷/);
+    assert.match(await page.locator('#shared-job-list').innerText(), /<測試電腦>/);
+    assert.match(await page.locator('#shared-job-list').innerText(), /提交：/);
+    await page.locator('#shared-job-list summary').click();
+    assert.match(await page.locator('.job-prompt').innerText(), /其他設備提交/);
+    for (const width of [1280, 390, 360]) {
+      await page.setViewportSize({ width, height: 820 });
+      assert.equal(await page.locator('.modal').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+      if (width !== 360) await page.screenshot({ path: path.join(__dirname, `../.runtime/shared-jobs-${width}.png`), fullPage: true });
+    }
+    await page.keyboard.press('Escape');
+    for (const width of [1280, 390, 360]) {
+      await page.setViewportSize({ width, height: 820 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Desktop overflows at ${width}px`);
+    }
+    await page.click('#mobile-connection');
     await page.click('#mobile-start');
     assert.equal(await page.locator('#mobile-start').isDisabled(), true);
     await page.keyboard.press('Escape');
