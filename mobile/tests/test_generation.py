@@ -61,16 +61,40 @@ class GenerationTest(unittest.TestCase):
 
             def comfy(parameters, prompt, seed, target, progress, source=None):
                 self.assertEqual(parameters['lokr_strength'], 1)
-                self.assertEqual(prompt, 'rewritten prompt')
+                self.assertTrue(prompt.startswith('portrait\n\n【精準模式生成規範】'))
                 Image.new('RGB', (16, 16)).save(target)
 
             with patch('mobile.generation.gpu_lock', return_value=nullcontext()), \
-                    patch('mobile.precision.rewrite', return_value='rewritten prompt') as rewrite, \
                     patch('mobile.nsfw_adv.run', side_effect=comfy):
                 result = generate(dict(prompt='portrait', workflow='nsfw_adv', precise_mode=True,
                                        parameters=dict(seed=12, lokr_strength=1)), [], output, Mock())
             self.assertEqual(result, ['0.png'])
-            rewrite.assert_called_once()
+
+    def test_precision_toggle_reaches_every_generation_runner(self):
+        original = '原文\n"Hello, 世界!" 不改寫'
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            for workflow in ('quick', 'reference', 'superduper', 'nsfw_adv'):
+                for enabled in (False, True):
+                    sources = [output / 'a.png', output / 'b.png'] if workflow == 'reference' else []
+                    calls = []
+
+                    def turbo(prompt, sources, target, seed, parameters):
+                        calls.append(prompt)
+                        Image.new('RGB', (16, 16)).save(target)
+
+                    def comfy(parameters, prompt, seed, target, progress, source=None):
+                        calls.append(prompt)
+                        Image.new('RGB', (16, 16)).save(target)
+
+                    runner = 'mobile.generation.run_turbo' if workflow in ('quick', 'reference') else f'mobile.{workflow}.run'
+                    with self.subTest(workflow=workflow, enabled=enabled), \
+                            patch('mobile.generation.gpu_lock', return_value=nullcontext()), \
+                            patch(runner, side_effect=turbo if workflow in ('quick', 'reference') else comfy):
+                        generate(dict(workflow=workflow, prompt=original, precise_mode=enabled), sources, output, Mock())
+                        self.assertEqual(len(calls), 1)
+                        self.assertIn(original, calls[0])
+                        self.assertEqual('【精準模式生成規範】' in calls[0], enabled)
 
     def test_comfy_modes_modify_each_source_with_incrementing_seed(self):
         with tempfile.TemporaryDirectory() as directory:

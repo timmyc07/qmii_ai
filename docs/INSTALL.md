@@ -5,10 +5,10 @@
 - Windows 10/11
 - Rust stable MSVC、Microsoft C++ Build Tools、Microsoft Edge WebView2 Runtime
 - `D:\AI\Qwen-Image-2.1-Turbo` 的既有 Turbo 執行環境與模型
-- ComfyUI 工作流與精準模式另需 `D:\AI\QwenImage21SuperDuper`（完整安裝約 50～60GB）
+- ComfyUI 工作流另需 `D:\AI\QwenImage21SuperDuper`；精準模式不需額外重寫模型
 - 手機功能另需 Python 3.12+；公開連線需 `.runtime\cloudflared.exe`
 
-安裝或修復最新版 ComfyUI Portable、SuperDuper、NSFW Adv 群組、精準模式與必要模型：
+安裝或修復最新版 ComfyUI Portable、SuperDuper、NSFW Adv 群組與必要模型：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\install-superduper.ps1

@@ -1,80 +1,28 @@
-"""Rewrite image prompts with the user's Qwen Image 2.1 precision template."""
-import json
-from pathlib import Path
-import time
+"""Append generation-only constraints adapted from the user's precision template."""
 
-from .superduper import COMFY, RUNTIME, ensure_server, request_json
-
-TEMPLATE = RUNTIME / 'precision_prompt.md'
-T2I_MODEL = 'qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors'
-I2I_MODEL = 'qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors'
-
-
-def _first_text(value):
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        for item in value:
-            result = _first_text(item)
-            if result:
-                return result
-    if isinstance(value, dict):
-        for item in value.values():
-            result = _first_text(item)
-            if result:
-                return result
-    return ''
+COMMON = (
+    '以上使用者提示詞為創作主體；以下僅為補充生成規範，有衝突時以使用者明確要求為準。',
+    '準確呈現指定的主體、數量、動作、顏色、風格與空間位置，不擅自增加人物、物件、品牌或文字。',
+    '需要顯示的文字逐字保留原語言、拼寫、標點與空格，不翻譯、不改寫、不自行增加雙語。',
+    '維持合理的透視、尺度、光照、陰影、反射與接觸關係；使用者要求的幻想或非寫實表現除外。',
+)
+EDIT = (
+    '僅修改使用者點名的屬性，修改效果須清楚可見；保留未涉及的人物身份、商品結構、媒介與其他細節。',
+    '局部編輯時保留未涉及區域；若要求新場景、姿態或構圖，允許相應改變，不強行鎖定原構圖。',
+    '新增或替換元素須自然匹配原圖的透視、光影與材質；刪除物件後自然補回被遮擋的內容。',
+    '忠於實際參考圖片，不猜造看不清的細節，不順便美化、清理或刪除未要求處理的內容。',
+)
+REFERENCE = (
+    '依輸入順序對應 <image1>、<image2> 等參考圖片；依使用者指定分別使用身份、服裝、商品、場景或風格。',
+    '不同人物身份與不同來源屬性分別保持，不混合五官、不擅自互換服裝或商品特徵。',
+    '依使用者要求建立最終構圖，不強行保留任何一張原構圖；統一各來源的尺度、透視、光影與清晰度。',
+)
 
 
-def _positive_prompt(text):
-    start, end = text.find('{'), text.rfind('}')
-    if start < 0 or end <= start:
-        if text.strip():
-            return text.strip()
-        raise RuntimeError('精準模式沒有產生提示詞。')
-    try:
-        value = json.loads(text[start:end + 1])
-    except json.JSONDecodeError as exc:
-        raise RuntimeError('精準模式回傳格式錯誤。') from exc
-    prompt = value.get('positive_prompt') or value.get('rewritten_prompt')
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise RuntimeError('精準模式沒有產生提示詞。')
-    return prompt.strip()
-
-
-def rewrite(prompt, has_images, seed, progress):
-    model = I2I_MODEL if has_images else T2I_MODEL
-    missing = [path for path in (TEMPLATE, COMFY / 'models' / 'text_encoders' / model) if not path.is_file()]
-    if missing:
-        raise RuntimeError('精準模式尚未安裝完成：' + '、'.join(path.name for path in missing))
-    ensure_server({'CLIPLoader', 'TextGenerate', 'PreviewAny'})
-    progress('精準模式正在重寫提示詞…')
-    system = TEMPLATE.read_text(encoding='utf-8')
-    graph = {
-        '1': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': model, 'type': 'stable_diffusion',
-                                                    'device': 'default'}},
-        '2': {'class_type': 'TextGenerate', 'inputs': {'clip': ['1', 0], 'prompt': prompt, 'max_length': 8192,
-                                                       'mtp': 'auto', 'sampling_mode': 'on',
-                                                       'sampling_mode.seed': seed, 'sampling_mode.temperature': .7,
-                                                       'sampling_mode.min_p': .05, 'sampling_mode.top_k': 20,
-                                                       'sampling_mode.top_p': .95,
-                                                       'sampling_mode.presence_penalty': 1.5,
-                                                       'sampling_mode.repetition_penalty': 1.05,
-                                                       'thinking': False, 'use_default_template': True,
-                                                       'system_prompt': system}},
-        '3': {'class_type': 'PreviewAny', 'inputs': {'source': ['2', 0]}}
-    }
-    prompt_id = request_json('/prompt', {'prompt': graph}, 30)['prompt_id']
-    for _ in range(1800):
-        history = request_json(f'/history/{prompt_id}', timeout=30)
-        if prompt_id in history:
-            status = history[prompt_id].get('status', {})
-            if status.get('status_str') == 'error':
-                raise RuntimeError('精準模式執行失敗，請查看 .runtime/superduper.log。')
-            output = history[prompt_id].get('outputs', {}).get('3')
-            if output:
-                rewritten = _positive_prompt(_first_text(output))
-                request_json('/free', {'unload_models': True, 'free_memory': True})
-                return rewritten
-        time.sleep(1)
-    raise RuntimeError('精準模式重寫提示詞逾時。')
+def apply_rules(prompt, workflow, has_images):
+    rules = COMMON
+    if has_images:
+        rules += EDIT
+        if workflow == 'reference':
+            rules += REFERENCE
+    return prompt + '\n\n【精準模式生成規範】\n' + '\n'.join(rules)

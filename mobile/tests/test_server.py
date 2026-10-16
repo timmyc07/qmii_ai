@@ -185,7 +185,7 @@ class MobileSecurityTest(unittest.TestCase):
     def test_job_origin_timestamps_and_authenticated_history(self):
         headers = self.login()
         origin = dict(platform='iOS · Safari · 網頁', device='小迷的手機', device_id='device-123', user='<小迷>')
-        value = dict(prompt='固定風格\n\n本次想法', workflow='quick', request_id='b' * 32, origin=origin)
+        value = dict(prompt='  固定風格\n\n本次想法\n ', workflow='quick', request_id='b' * 32, origin=origin)
         first = self.client.post('/api/jobs', json=value, headers=headers).json()
         self.assertEqual(first['origin'], origin)
         value['origin']['user'] = '其他名稱'
@@ -200,7 +200,8 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(job['status'], 'completed')
         self.assertLessEqual(job['created'], job['started'])
         self.assertLessEqual(job['started'], job['finished'])
-        self.assertEqual(job['prompt'], '固定風格\n\n本次想法')
+        self.assertEqual(job['prompt'], '  固定風格\n\n本次想法\n ')
+        self.assertIn('  固定風格\n\n本次想法\n ', self.received)
         other = TestClient(self.app, base_url='http://localhost:8787')
         self.assertEqual(other.get('/api/jobs').status_code, 401)
         self.assertEqual(other.get('/api/jobs/' + first['id']).status_code, 401)

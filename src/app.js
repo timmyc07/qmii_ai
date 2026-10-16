@@ -296,7 +296,7 @@ async function togglePreciseMode() {
   state.preciseMode = !previous;
   renderPreciseState();
   if (!await persistSettings()) { state.preciseMode = previous; renderPreciseState(); return; }
-  toast(state.preciseMode ? '精準模式已開啟，會先重寫提示詞' : '精準模式已關閉');
+  toast(state.preciseMode ? '精準模式已開啟，保留原文並附加生成規範' : '精準模式已關閉');
 }
 
 const mobile = { status: null, busy: '', error: '', revision: 0, panel: null };
@@ -419,9 +419,8 @@ function setBusy(value) {
 async function submitPrompt() {
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
   if (state.generating) return;
-  const typed = promptInput.value.trim();
-  const finalPrompt = typed;
-  if (!finalPrompt) { toast('先寫下想法吧 ♡'); promptInput.focus(); return; }
+  const finalPrompt = promptInput.value;
+  if (!finalPrompt.trim()) { toast('先寫下想法吧 ♡'); promptInput.focus(); return; }
   const images = [...state.images];
   const parameters = currentParameters();
   if (state.workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }

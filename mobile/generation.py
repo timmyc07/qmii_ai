@@ -28,8 +28,8 @@ def generate(payload, sources, output_dir, progress):
     with gpu_lock():
         prompt = payload['prompt']
         if payload.get('precise_mode'):
-            from .precision import rewrite
-            prompt = rewrite(prompt, bool(sources), new_seed(), progress)
+            from .precision import apply_rules
+            prompt = apply_rules(prompt, workflow, bool(sources))
         if workflow in ('superduper', 'nsfw_adv'):
             if workflow == 'superduper':
                 from .superduper import run

@@ -415,7 +415,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 if not db.execute('SELECT id FROM uploads WHERE id=?', (upload_id,)).fetchone():
                     raise HTTPException(422, '找不到上傳圖片，請重新選擇。')
             db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt.strip(),
+                       (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt,
                         value.workflow, json.dumps(value.images), '[]', now, now, json.dumps(value.origin.model_dump()),
                         json.dumps(parameters), int(value.precise_mode)))
         wake.set()

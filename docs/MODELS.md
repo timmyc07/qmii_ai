@@ -16,4 +16,4 @@ NSFW Adv 群組共用同一套 ComfyUI，但使用獨立的 Qwen Image FP8、Qwe
 
 安裝器保留局部細修 LoRA 原檔，另產生 `_comfy.safetensors` 版本；將合併的 `gate_up` LoRA 投影等價拆為 `gate_layer`／`proj`，供 ComfyUI 完整載入。可使用 portable Python 執行 `tools\test_qwen_lora.py` 驗證拆分前後的投影等價性。
 
-精準模式使用官方 Qwen Image 2.1 PE T2I／I2I text encoder 與本機 `precision_prompt.md`。模型、LoRA、LoKr、模板與 ComfyUI runtime 都只保存在 `D:\AI\QwenImage21SuperDuper`，不提交 Git。
+精準模式的生成規範整理自使用者模板，由程式直接附加，不再依賴 PE T2I／I2I text encoder 或本機模板檔。已下載的 PE 模型保留在本機，但程式不再載入，也不再自動下載。模型、LoRA、LoKr 與 ComfyUI runtime 只保存在 `D:\AI\QwenImage21SuperDuper`，不提交 Git。

@@ -46,19 +46,21 @@ const { chromium } = require('playwright');
     for (const workflow of ['quick', 'reference', 'superduper', 'nsfw_adv']) {
       await page.reload();
       await page.selectOption('#workflow', workflow);
+      await page.check('#precise-mode');
       assert.equal(await page.locator('#files').isDisabled(), false);
       await page.locator('#files').setInputFiles([
         { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('test source a') },
         { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from('test source b') }
       ]);
-      await page.fill('#prompt', '柔和花園');
+      await page.fill('#prompt', '  柔和花園\n"Hello, 世界!"  ');
       await Promise.all([
         page.waitForResponse(response => response.url().endsWith('/api/jobs') && response.request().method() === 'POST'),
         page.click('#send')
       ]);
       assert.equal(submissions.at(-1).workflow, workflow);
       assert.equal(submissions.at(-1).images.length, 2);
-      assert.equal(submissions.at(-1).prompt, '柔和花園');
+      assert.equal(submissions.at(-1).prompt, '  柔和花園\n"Hello, 世界!"  ');
+      assert.equal(submissions.at(-1).precise_mode, true);
     }
     console.log('Mobile studio UI passed: Turbo, ComfyUI groups, and precise mode.');
   } finally {

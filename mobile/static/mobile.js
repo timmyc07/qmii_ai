@@ -239,8 +239,8 @@ $('login-form').onsubmit = async event => {
 $('composer').onsubmit = async event => {
   event.preventDefault(); if (submitting) return;
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
-  const prompt = $('prompt').value.trim();
-  if (!prompt || prompt.length > 8000) { toast('請輸入提示詞，合計最多 8000 字。'); return; }
+  const prompt = $('prompt').value;
+  if (!prompt.trim() || prompt.length > 8000) { toast('請輸入提示詞，合計最多 8000 字。'); return; }
   if ($('workflow').value === 'reference' && selected.length < 2) { toast('多圖參考至少需要 2 張參考圖片。'); return; }
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
   try {

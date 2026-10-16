@@ -2,17 +2,10 @@ param(
     [string]$WorkflowSource = (Join-Path $env:USERPROFILE 'Downloads\qwenImage21SuperDuper_v2.json'),
     [string]$LoraSource = (Join-Path $env:USERPROFILE 'Downloads\pussyV2.safetensors'),
     [string]$PenisLoraSource = (Join-Path $env:USERPROFILE 'Downloads\qwen2.1_penisV01_000004956.safetensors'),
-    [string]$LokrSource = (Join-Path $env:USERPROFILE 'Downloads\qwen-image_nsfw_adv_v1.0.safetensors'),
-    [string]$PrecisionTemplateSource = ''
+    [string]$LokrSource = (Join-Path $env:USERPROFILE 'Downloads\qwen-image_nsfw_adv_v1.0.safetensors')
 )
 
 $ErrorActionPreference = 'Stop'
-
-if (-not $PrecisionTemplateSource) {
-    $templateFolder = Join-Path $env:USERPROFILE 'Downloads\15.qwen image 2(1).1'
-    $PrecisionTemplateSource = Get-ChildItem -LiteralPath $templateFolder -Filter '*.md' |
-        Select-Object -First 1 -ExpandProperty FullName
-}
 
 $runtime = 'D:\AI\QwenImage21SuperDuper'
 $portable = Join-Path $runtime 'ComfyUI_windows_portable'
@@ -36,7 +29,6 @@ if (-not (Test-Path -LiteralPath $WorkflowSource)) { throw "Workflow not found: 
 if (-not (Test-Path -LiteralPath $LoraSource)) { throw "LoRA not found: $LoraSource" }
 if (-not (Test-Path -LiteralPath $PenisLoraSource)) { throw "LoRA not found: $PenisLoraSource" }
 if (-not (Test-Path -LiteralPath $LokrSource)) { throw "LoKr not found: $LokrSource" }
-if (-not (Test-Path -LiteralPath $PrecisionTemplateSource)) { throw "Precision template not found: $PrecisionTemplateSource" }
 $lokrHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $LokrSource).Hash
 if ($lokrHash -ne '210E840D99F8152D503665C7AD43724EDDDD4CE3FDF11FA15839E8146C96F018') {
     throw "LoKr SHA256 mismatch: $lokrHash"
@@ -50,7 +42,6 @@ if (-not (Test-Path -LiteralPath $python)) {
 }
 
 Copy-Item -LiteralPath $WorkflowSource -Destination (Join-Path $runtime 'qwenImage21SuperDuper_v2.json') -Force
-Copy-Item -LiteralPath $PrecisionTemplateSource -Destination (Join-Path $runtime 'precision_prompt.md') -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $comfy 'models\loras') | Out-Null
 Copy-Item -LiteralPath $LoraSource -Destination (Join-Path $comfy 'models\loras\pussyV2.safetensors') -Force
 Copy-Item -LiteralPath $PenisLoraSource -Destination (Join-Path $comfy 'models\loras\qwen2.1_penisV01_000004956.safetensors') -Force
@@ -98,8 +89,6 @@ if (Test-Path -LiteralPath $impactInstaller) {
 
 $baseUrl = 'https://huggingface.co/Kutches/Qwen/resolve/2e407eb8da4172512aacef61be1fe5aa84a12f1d/redqw21UNLOCKEDV2TI2I_redqw21UNLOCKEDV2_3258922.safetensors'
 $downloads = @(
-    @('https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors', 'models\text_encoders\qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors'),
-    @('https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors', 'models\text_encoders\qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors'),
     @('https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors', 'models\diffusion_models\qwen_image_fp8_e4m3fn.safetensors'),
     @('https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors', 'models\text_encoders\qwen_2.5_vl_7b_fp8_scaled.safetensors'),
     @('https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors', 'models\vae\qwen_image_vae.safetensors'),
@@ -133,8 +122,6 @@ $required = @(
     'models\vae\qwen_image_vae.safetensors',
     'models\loras\Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors',
     'models\loras\qwen-image_nsfw_adv_v1.0.safetensors',
-    'models\text_encoders\qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors',
-    'models\text_encoders\qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors',
     'models\ultralytics\bbox\face_yolov8m.pt',
     'models\ultralytics\bbox\female-breast-v4.7.pt',
     'models\ultralytics\bbox\pussyV2.pt',
