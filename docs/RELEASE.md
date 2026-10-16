@@ -7,6 +7,11 @@
 
 `dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 Turbo 與 SuperDuper 執行環境。
 
+## 0.5.1
+
+- 修正桌面設定仍送出已移除的 `fixedPrompt`，導致儲存失敗。
+- SuperDuper 恢復工作流原有的 `qwen2.1_penisV01_000004956.safetensors` 局部細修 LoRA。
+
 ## 0.5.0
 
 - 新增指定的 ComfyUI SuperDuper 工作流與 `pussyV2` LoRA。

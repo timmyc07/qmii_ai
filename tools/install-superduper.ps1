@@ -1,6 +1,7 @@
 param(
     [string]$WorkflowSource = (Join-Path $env:USERPROFILE 'Downloads\qwenImage21SuperDuper_v2.json'),
     [string]$LoraSource = (Join-Path $env:USERPROFILE 'Downloads\pussyV2.safetensors'),
+    [string]$PenisLoraSource = (Join-Path $env:USERPROFILE 'Downloads\qwen2.1_penisV01_000004956.safetensors'),
     [string]$LokrSource = (Join-Path $env:USERPROFILE 'Downloads\qwen-image_nsfw_adv_v1.0.safetensors'),
     [string]$PrecisionTemplateSource = '',
     [string]$CivitaiToken = ''
@@ -34,6 +35,7 @@ function Get-RemoteFile([string]$Url, [string]$Destination) {
 
 if (-not (Test-Path -LiteralPath $WorkflowSource)) { throw "Workflow not found: $WorkflowSource" }
 if (-not (Test-Path -LiteralPath $LoraSource)) { throw "LoRA not found: $LoraSource" }
+if (-not (Test-Path -LiteralPath $PenisLoraSource)) { throw "LoRA not found: $PenisLoraSource" }
 if (-not (Test-Path -LiteralPath $LokrSource)) { throw "LoKr not found: $LokrSource" }
 if (-not (Test-Path -LiteralPath $PrecisionTemplateSource)) { throw "Precision template not found: $PrecisionTemplateSource" }
 $lokrHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $LokrSource).Hash
@@ -52,6 +54,7 @@ Copy-Item -LiteralPath $WorkflowSource -Destination (Join-Path $runtime 'qwenIma
 Copy-Item -LiteralPath $PrecisionTemplateSource -Destination (Join-Path $runtime 'precision_prompt.md') -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $comfy 'models\loras') | Out-Null
 Copy-Item -LiteralPath $LoraSource -Destination (Join-Path $comfy 'models\loras\pussyV2.safetensors') -Force
+Copy-Item -LiteralPath $PenisLoraSource -Destination (Join-Path $comfy 'models\loras\qwen2.1_penisV01_000004956.safetensors') -Force
 Copy-Item -LiteralPath $LokrSource -Destination (Join-Path $comfy 'models\loras\qwen-image_nsfw_adv_v1.0.safetensors') -Force
 
 $vaeTarget = Join-Path $comfy 'models\vae\qwen_image_2.1_vae_bf16.safetensors'
@@ -123,6 +126,7 @@ $required = @(
     'models\text_encoders\qwen3vl_8b_int8_convrot.safetensors',
     'models\vae\qwen_image_2.1_vae_bf16.safetensors',
     'models\loras\pussyV2.safetensors',
+    'models\loras\qwen2.1_penisV01_000004956.safetensors',
     'models\diffusion_models\qwen_image_fp8_e4m3fn.safetensors',
     'models\text_encoders\qwen_2.5_vl_7b_fp8_scaled.safetensors',
     'models\vae\qwen_image_vae.safetensors',

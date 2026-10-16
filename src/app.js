@@ -18,7 +18,7 @@ function jobTime(value) {
 
 function renderSharedJob(job) {
   const origin = job.origin || {};
-  const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper + pussyV2', nsfw_adv: 'NSFW Adv 群組' };
+  const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper 群組', nsfw_adv: 'NSFW Adv 群組' };
   const endLabel = job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
     <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span></div>
@@ -146,7 +146,7 @@ function renderWorkflow() {
   $('workflow-help').textContent = state.workflow === 'reference'
     ? '上傳 2～4 張圖片，由 Qwen Image Turbo 融合參考生成一張作品。'
     : state.workflow === 'superduper'
-      ? 'ComfyUI 雙階段工作流，套用 pussyV2 LoRA 與四段局部細修；目前只支援文字生成。'
+      ? 'ComfyUI 雙階段工作流，套用 pussyV2 與工作流指定的局部細修 LoRA；目前只支援文字生成。'
       : state.workflow === 'nsfw_adv'
         ? '作者建議配置群組：NSFW Adv LoKr 1.0、Lightning 0.45、res_2s、bong_tangent、10 Steps、CFG 1。'
       : 'Qwen Image Turbo 文字生圖；有圖片時逐張修改。';

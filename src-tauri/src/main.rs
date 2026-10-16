@@ -35,7 +35,9 @@ struct Settings {
     #[serde(default)]
     presets: Vec<Preset>,
     #[serde(default)]
-    fixed_prompt: String,
+    precise_mode: bool,
+    #[serde(default)]
+    generation: serde_json::Map<String, serde_json::Value>,
     #[serde(default)]
     revision: String,
 }
@@ -236,4 +238,17 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("啟動千迷AI失敗");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn settings_uses_current_shared_fields() {
+        let value = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(value["preciseMode"], false);
+        assert_eq!(value["generation"], serde_json::json!({}));
+        assert!(value.get("fixedPrompt").is_none());
+    }
 }

@@ -6,7 +6,7 @@
 
 - `quick`：文字生圖；有圖片時逐張修改。
 - `reference`：需要 2～4 張參考圖片，融合生成一張圖片。
-- `superduper`：ComfyUI 雙階段文字生圖，套用 `pussyV2` LoRA 與局部細修，不接受參考圖片。
+- `superduper`：ComfyUI 雙階段文字生圖，套用 `pussyV2` 與工作流指定的局部細修 LoRA，不接受參考圖片。
 - `nsfw_adv`：獨立 ComfyUI 作者建議群組，套用 NSFW Adv LoKr、Lightning 與 RES4LYF，不接受參考圖片。
 
 主機只接受這四個工作流 ID，並驗證提示詞、圖片、寬高（256～2048 且為 32 的倍數）、步數、CFG、種子、負面提示詞與 LoRA／LoKr 強度。所有任務一次只占用一個 GPU 鎖；輸出 PNG 會移除生成 metadata。

@@ -13,7 +13,8 @@ class SuperDuperTest(unittest.TestCase):
             {'id': value, 'type': kind, 'mode': 0, 'inputs': [], 'widgets_values_named': {}}
             for value, kind in [(55, 'MarkdownNote'), (56, 'SaveImage'), (62, 'EmptyLatentImage'),
                                 (82, 'TextEncodeQwenImage21'), (83, 'LoraLoader'),
-                                (88, 'KSamplerAdvanced'), (89, 'KSamplerAdvanced'), (90, 'SeedNode')]
+                                (88, 'KSamplerAdvanced'), (89, 'KSamplerAdvanced'), (90, 'SeedNode'),
+                                (121, 'FaceDetailer'), (123, 'LoraLoader')]
         ]
         with tempfile.TemporaryDirectory() as directory:
             workflow = Path(directory) / 'workflow.json'
@@ -28,6 +29,8 @@ class SuperDuperTest(unittest.TestCase):
         self.assertEqual(graph['88']['inputs']['end_at_step'], 12)
         self.assertEqual(graph['89']['inputs']['start_at_step'], 12)
         self.assertEqual(graph['83']['inputs']['strength_model'], .65)
+        self.assertEqual(graph['123']['inputs']['clip'], ['83', 1])
+        self.assertEqual(graph['121']['inputs']['model'], ['123', 0])
         self.assertEqual(graph['90']['inputs']['seed'], 42)
 
 

@@ -24,20 +24,22 @@ REQUIRED_FILES = (
     'models/text_encoders/qwen3vl_8b_int8_convrot.safetensors',
     'models/vae/qwen_image_2.1_vae_bf16.safetensors',
     'models/loras/pussyV2.safetensors',
+    'models/loras/qwen2.1_penisV01_000004956.safetensors',
     'models/ultralytics/bbox/face_yolov8m.pt',
     'models/ultralytics/bbox/female-breast-v4.7.pt',
     'models/ultralytics/bbox/pussyV2.pt',
     'models/ultralytics/segm/cockAndBallDetection_v20.pt',
     'models/sams/sam_vit_b_01ec64.pth',
 )
-REMOVED = {55, 60, 81, 97, 98, 99, 100, 103, 104, 105, 111, 114, 117, 118, 119, 122, 123, 126}
+REMOVED = {55, 60, 81, 97, 98, 99, 100, 103, 104, 105, 111, 114, 117, 118, 119, 122, 126}
 REWIRES = {
     (83, 'model'): ['80', 0],
     (82, 'clip'): ['83', 1],
     (106, 'model'): ['83', 0],
     (110, 'image'): ['8', 0],
-    (121, 'model'): ['107', 0],
-    (121, 'clip'): ['83', 1],
+    (123, 'clip'): ['83', 1],
+    (121, 'model'): ['123', 0],
+    (121, 'clip'): ['123', 1],
     (56, 'images'): ['121', 0],
 }
 
@@ -142,7 +144,7 @@ def compile_workflow(parameters, prompt, seed):
 
 def run(parameters, prompt, seed, output, progress):
     ensure_comfy()
-    progress('正在載入 SuperDuper 工作流與 pussyV2 LoRA…')
+    progress('正在載入 SuperDuper 工作流與局部細修 LoRA…')
     prompt_id = request_json('/prompt', {'prompt': compile_workflow(parameters, prompt, seed)}, 30)['prompt_id']
     for _ in range(7200):
         history = request_json(f'/history/{prompt_id}', timeout=30)
