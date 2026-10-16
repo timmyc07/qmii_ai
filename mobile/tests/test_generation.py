@@ -40,6 +40,42 @@ class GenerationTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '至少需要 2 張'):
                 generate(dict(prompt='test', workflow='reference'), [output / 'one.png'], output, Mock())
 
+    def test_superduper_runs_once_without_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+
+            def comfy(parameters, prompt, seed, target, progress):
+                self.assertEqual(parameters['lora_strength'], .7)
+                self.assertEqual(prompt, 'portrait')
+                Image.new('RGB', (16, 16)).save(target)
+
+            with patch('mobile.generation.gpu_lock', return_value=nullcontext()), \
+                    patch('mobile.superduper.run', side_effect=comfy):
+                result = generate(dict(prompt='portrait', workflow='superduper',
+                                       parameters=dict(seed=12, lora_strength=.7)), [], output, Mock())
+            self.assertEqual(result, ['0.png'])
+            with self.assertRaisesRegex(RuntimeError, '只支援文字'):
+                generate(dict(prompt='portrait', workflow='superduper'), [output / '0.png'], output, Mock())
+
+    def test_nsfw_adv_group_and_precise_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+
+            def comfy(parameters, prompt, seed, target, progress):
+                self.assertEqual(parameters['lokr_strength'], 1)
+                self.assertEqual(prompt, 'rewritten prompt')
+                Image.new('RGB', (16, 16)).save(target)
+
+            with patch('mobile.generation.gpu_lock', return_value=nullcontext()), \
+                    patch('mobile.precision.rewrite', return_value='rewritten prompt') as rewrite, \
+                    patch('mobile.nsfw_adv.run', side_effect=comfy):
+                result = generate(dict(prompt='portrait', workflow='nsfw_adv', precise_mode=True,
+                                       parameters=dict(seed=12, lokr_strength=1)), [], output, Mock())
+            self.assertEqual(result, ['0.png'])
+            rewrite.assert_called_once()
+            with self.assertRaisesRegex(RuntimeError, '只支援文字'):
+                generate(dict(prompt='portrait', workflow='nsfw_adv'), [output / '0.png'], output, Mock())
+
     def test_turbo_applies_image_parameters_and_cleans_prompt_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

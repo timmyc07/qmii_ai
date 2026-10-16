@@ -2,10 +2,17 @@
 
 1. 執行 Python、桌面與手機 UI 測試，以及 `cargo check --manifest-path src-tauri\Cargo.toml`。
 2. 執行 `tools\build.ps1`。
-3. 確認 `dist\千迷AI.exe`、`dist\千迷AI-0.4.2.exe` 與 `dist\SHA256SUMS.txt` 存在。
+3. 確認 `dist\千迷AI.exe`、版本化 EXE 與 `dist\SHA256SUMS.txt` 存在。
 4. 提交並推送原始碼；需要公開發行時再建立 tag 與 GitHub Release。
 
-`dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 `D:\AI\Qwen-Image-2.1-Turbo`。
+`dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 Turbo 與 SuperDuper 執行環境。
+
+## 0.5.0
+
+- 新增指定的 ComfyUI SuperDuper 工作流與 `pussyV2` LoRA。
+- 新增 NSFW Adv LoKr 作者建議群組與可切換的精準模式。
+- 桌面與手機可調整尺寸、步數、CFG、種子、負面提示詞及 LoRA 強度。
+- 新增最新版 ComfyUI Portable 與必要模型的一鍵安裝／驗證腳本。
 
 ## 0.4.2
 

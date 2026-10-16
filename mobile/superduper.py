@@ -1,0 +1,161 @@
+"""Run the imported Qwen Image 2.1 SuperDuper workflow through dedicated ComfyUI."""
+import json
+import logging
+import os
+from pathlib import Path
+import socket
+import subprocess
+import time
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME = Path(r'D:\AI\QwenImage21SuperDuper')
+PORTABLE = RUNTIME / 'ComfyUI_windows_portable'
+COMFY = PORTABLE / 'ComfyUI'
+PYTHON = PORTABLE / 'python_embeded' / 'python.exe'
+WORKFLOW = RUNTIME / 'qwenImage21SuperDuper_v2.json'
+URL = 'http://127.0.0.1:8191'
+FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+LOG = logging.getLogger('qianmi.mobile')
+REQUIRED_NODES = {'APG', 'FreSca', 'FaceDetailer', 'UltralyticsDetectorProvider', 'TextEncodeQwenImage21'}
+REQUIRED_FILES = (
+    'models/diffusion_models/redqw21UNLOCKEDV2TI2I_redqw21UNLOCKEDV2_int8.safetensors',
+    'models/text_encoders/qwen3vl_8b_int8_convrot.safetensors',
+    'models/vae/qwen_image_2.1_vae_bf16.safetensors',
+    'models/loras/pussyV2.safetensors',
+    'models/ultralytics/bbox/face_yolov8m.pt',
+    'models/ultralytics/bbox/female-breast-v4.7.pt',
+    'models/ultralytics/bbox/pussyV2.pt',
+    'models/ultralytics/segm/cockAndBallDetection_v20.pt',
+    'models/sams/sam_vit_b_01ec64.pth',
+)
+REMOVED = {55, 60, 81, 97, 98, 99, 100, 103, 104, 105, 111, 114, 117, 118, 119, 122, 123, 126}
+REWIRES = {
+    (83, 'model'): ['80', 0],
+    (82, 'clip'): ['83', 1],
+    (106, 'model'): ['83', 0],
+    (110, 'image'): ['8', 0],
+    (121, 'model'): ['107', 0],
+    (121, 'clip'): ['83', 1],
+    (56, 'images'): ['121', 0],
+}
+
+
+def request_json(path, payload=None, timeout=10):
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = Request(URL + path, data=data, headers={'Content-Type': 'application/json'})
+    with urlopen(request, timeout=timeout) as response:
+        content = response.read()
+        return json.loads(content) if content else {}
+
+
+def dependencies():
+    missing = []
+    if not PYTHON.is_file() or not (COMFY / 'main.py').is_file():
+        missing.append('ComfyUI Portable')
+    if not WORKFLOW.is_file():
+        missing.append(WORKFLOW.name)
+    missing.extend(path for path in REQUIRED_FILES if not (COMFY / path).is_file())
+    return missing
+
+
+def ensure_server(required_nodes=()):
+    if not PYTHON.is_file() or not (COMFY / 'main.py').is_file():
+        raise RuntimeError('ComfyUI Portable 尚未安裝完成。')
+    try:
+        nodes = request_json('/object_info')
+        absent = set(required_nodes) - nodes.keys()
+        if absent:
+            raise RuntimeError('ComfyUI 缺少節點：' + '、'.join(sorted(absent)))
+        return
+    except OSError:
+        pass
+    try:
+        with socket.create_connection(('127.0.0.1', 8191), timeout=.5):
+            raise RuntimeError('8191 連接埠已被其他服務占用。')
+    except OSError:
+        pass
+    output = ROOT / '.runtime' / 'superduper-output'
+    output.mkdir(parents=True, exist_ok=True)
+    log_path = ROOT / '.runtime' / 'superduper.log'
+    with log_path.open('ab') as log:
+        child = subprocess.Popen([str(PYTHON), '-s', str(COMFY / 'main.py'), '--listen', '127.0.0.1',
+                                  '--port', '8191', '--disable-auto-launch', '--lowvram',
+                                  '--output-directory', str(output)], cwd=COMFY, stdout=log, stderr=log,
+                                 creationflags=FLAGS)
+    LOG.info('Started SuperDuper ComfyUI pid=%s', child.pid)
+    for _ in range(180):
+        if child.poll() is not None:
+            break
+        try:
+            nodes = request_json('/object_info')
+            absent = set(required_nodes) - nodes.keys()
+            if absent:
+                raise RuntimeError('ComfyUI 缺少節點：' + '、'.join(sorted(absent)))
+            return
+        except OSError:
+            time.sleep(1)
+    raise RuntimeError('SuperDuper ComfyUI 啟動失敗，請查看 .runtime/superduper.log。')
+
+
+def ensure_comfy():
+    missing = dependencies()
+    if missing:
+        raise RuntimeError('SuperDuper 尚未安裝完成：' + '、'.join(missing))
+    ensure_server(REQUIRED_NODES)
+
+
+def compile_workflow(parameters, prompt, seed):
+    workflow = json.loads(WORKFLOW.read_text(encoding='utf-8'))
+    links = {link[0]: [str(link[1]), link[2]] for link in workflow['links']}
+    graph = {}
+    for node in workflow['nodes']:
+        node_id = node['id']
+        if node_id in REMOVED or node.get('mode', 0) != 0:
+            continue
+        inputs = dict(node.get('widgets_values_named') or {})
+        for item in node.get('inputs', []):
+            if item.get('link') is not None:
+                inputs[item['name']] = links[item['link']]
+        for (target, name), value in REWIRES.items():
+            if target == node_id:
+                inputs[name] = value
+        graph[str(node_id)] = {'class_type': node['type'], 'inputs': inputs,
+                               '_meta': {'title': node.get('title', node['type'])}}
+
+    width, height = parameters.get('width', 1024), parameters.get('height', 1536)
+    steps = parameters.get('steps', 40)
+    split = max(1, min(steps - 1, round(steps * 23 / 40)))
+    graph['62']['inputs'].update(width=width, height=height, batch_size=1)
+    graph['82']['inputs']['prompt'] = prompt if 'STZK' in prompt else f'STZK, {prompt}'
+    if parameters.get('negative'):
+        graph['82']['inputs']['negative_prompt'] = parameters['negative']
+    graph['90']['inputs']['seed'] = seed
+    graph['88']['inputs'].update(steps=steps, end_at_step=split)
+    graph['89']['inputs'].update(steps=steps, start_at_step=split, cfg=parameters.get('cfg', 2))
+    strength = parameters.get('lora_strength', .8)
+    graph['83']['inputs'].update(strength_model=strength, strength_clip=strength)
+    graph['56']['inputs']['filename_prefix'] = 'qianmi_superduper'
+    return graph
+
+
+def run(parameters, prompt, seed, output, progress):
+    ensure_comfy()
+    progress('正在載入 SuperDuper 工作流與 pussyV2 LoRA…')
+    prompt_id = request_json('/prompt', {'prompt': compile_workflow(parameters, prompt, seed)}, 30)['prompt_id']
+    for _ in range(7200):
+        history = request_json(f'/history/{prompt_id}', timeout=30)
+        if prompt_id in history:
+            status = history[prompt_id].get('status', {})
+            if status.get('status_str') == 'error':
+                raise RuntimeError('SuperDuper 工作流執行失敗，請查看 .runtime/superduper.log。')
+            images = history[prompt_id].get('outputs', {}).get('56', {}).get('images', [])
+            if images:
+                image = images[-1]
+                query = urlencode({key: image[key] for key in ('filename', 'subfolder', 'type')})
+                with urlopen(URL + '/view?' + query, timeout=120) as response:
+                    output.write_bytes(response.read())
+                return
+        time.sleep(1)
+    raise RuntimeError('SuperDuper 工作流逾時。')

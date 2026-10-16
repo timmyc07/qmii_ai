@@ -23,7 +23,7 @@ const { chromium } = require('playwright');
       window.testGenerations = [];
       window.__TAURI__ = {
         core: { convertFileSrc: value => value, invoke: async (name, value) => {
-          if (name === 'load_settings') return { presets: [], fixedPrompt: '', generation: {}, revision: '' };
+          if (name === 'load_settings') return { presets: [], preciseMode: false, generation: {}, revision: '' };
           if (name === 'generate_images') { window.testGenerations.push(value); return; }
           if (name === 'mobile_status') return { running: false, registered: false, url: '', code: '', message: '' };
           if (name === 'studio_jobs') return { jobs: [] };
@@ -32,11 +32,16 @@ const { chromium } = require('playwright');
       };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
-    assert.equal(await page.locator('#workflow-menu [data-value]').count(), 2);
+    assert.equal(await page.locator('#workflow-menu [data-value]').count(), 4);
     assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 6);
     assert.match(await page.locator('#generation-parameters').innerText(), /寬度 Width/);
     assert.match(await page.locator('#generation-parameters').innerText(), /調高.*調低/s);
-    assert.equal(await page.locator('body').innerText().then(text => /ComfyUI|LoRA|Chroma|FLUX|Wan 2\.2/.test(text)), false);
+    await page.click('#workflow-trigger'); await page.click('[data-value="superduper"]');
+    assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 7);
+    assert.match(await page.locator('#workflow-help').innerText(), /ComfyUI/);
+    await page.click('#workflow-trigger'); await page.click('[data-value="nsfw_adv"]');
+    assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 8);
+    assert.match(await page.locator('#workflow-help').innerText(), /LoKr/);
     await page.click('#workflow-trigger'); await page.click('[data-value="reference"]');
     assert.match(await page.locator('#workflow-help').innerText(), /Qwen Image Turbo/);
     await page.click('#workflow-trigger'); await page.click('[data-value="quick"]');
@@ -47,7 +52,7 @@ const { chromium } = require('playwright');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     }
     assert.deepEqual(errors, []);
-    console.log('Conversation UI passed: Turbo-only modes and responsive layout.');
+    console.log('Conversation UI passed: Turbo and ComfyUI groups, parameters, responsive layout.');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

@@ -91,17 +91,20 @@ class MobileSecurityTest(unittest.TestCase):
         response = self.client.post('/api/jobs', json=payload, headers=headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['workflow'], 'quick')
+        upload = self.client.post('/api/uploads', content=image_bytes(), headers=headers).json()['id']
+        invalid = {**payload, 'workflow': 'superduper', 'images': [upload], 'request_id': 'd' * 32}
+        self.assertEqual(self.client.post('/api/jobs', json=invalid, headers=headers).status_code, 422)
 
     def test_shared_settings_conflict_and_security(self):
         self.assertEqual(self.client.get('/api/settings').status_code, 401)
         headers = self.login()
         value = self.client.get('/api/settings').json()
-        value.update(fixedPrompt='共同提示', presets=[dict(id='one', name='測試', prompt='花園')],
+        value.update(preciseMode=True, presets=[dict(id='one', name='測試', prompt='花園')],
                      generation={'quick': {'width': 768, 'height': 1344, 'negative': '模糊'}})
         self.assertEqual(self.client.put('/api/settings', json=value, headers=ORIGIN).status_code, 403)
         result = self.client.put('/api/settings', json=value, headers=headers)
         self.assertEqual(result.status_code, 200)
-        self.assertEqual(self.client.get('/api/session').json()['fixedPrompt'], '共同提示')
+        self.assertTrue(self.client.get('/api/session').json()['preciseMode'])
         self.assertEqual(result.json()['generation']['quick']['height'], 1344)
         self.assertEqual(self.client.put('/api/settings', json=value, headers=headers).status_code, 409)
         self.assertEqual(self.client.get('/api/settings').json()['presets'][0]['name'], '測試')

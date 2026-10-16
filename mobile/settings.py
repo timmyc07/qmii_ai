@@ -21,14 +21,14 @@ class Preset(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     presets: list[Preset] = Field(default_factory=list, max_length=100)
-    fixedPrompt: str = Field(default='', max_length=4000)
+    preciseMode: bool = False
     generation: dict[str, Parameters] = Field(default_factory=dict, max_length=10)
     revision: str = ''
 
     @model_validator(mode='after')
     def validate_generation(self):
         for key, value in self.generation.items():
-            if key not in ('quick', 'reference'):
+            if key not in ('quick', 'reference', 'superduper', 'nsfw_adv'):
                 raise ValueError('不支援的參數模式。')
             validate_parameters(value.model_dump(exclude_none=True))
         return self
@@ -45,11 +45,11 @@ class SettingsStore:
         else:
             data = b''
             presets = self.path.parent / 'prompt_templates.json'
-            fixed = self.path.parent / 'fixed_prompt.txt'
             value = dict(presets=json.loads(presets.read_text(encoding='utf-8')) if presets.exists() else [],
-                         fixedPrompt=fixed.read_text(encoding='utf-8') if fixed.exists() else '')
+                         preciseMode=False)
             for preset in value['presets']:
                 preset.setdefault('id', secrets.token_hex(16))
+        value.pop('fixedPrompt', None)
         value['revision'] = hashlib.sha256(data).hexdigest()
         return Settings.model_validate(value).model_dump()
 

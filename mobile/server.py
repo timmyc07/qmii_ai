@@ -51,8 +51,9 @@ class JobOrigin(BaseModel):
 class JobInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     prompt: str = Field(min_length=1, max_length=8000)
-    workflow: str = Field(pattern='^(quick|reference)$')
+    workflow: str = Field(pattern='^(quick|reference|superduper|nsfw_adv)$')
     parameters: Parameters | None = None
+    precise_mode: bool = False
     origin: JobOrigin = Field(default_factory=JobOrigin)
     images: list[str] = Field(default_factory=list, max_length=4)
     request_id: str = Field(pattern='^[a-f0-9]{32}$')
@@ -99,13 +100,14 @@ class Store:
                 CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, created REAL);
                 CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, request_id TEXT UNIQUE,
                     status TEXT, message TEXT, prompt TEXT, workflow TEXT, sources TEXT,
-                    results TEXT, created REAL, updated REAL);
+                    results TEXT, created REAL, updated REAL, precise_mode INTEGER NOT NULL DEFAULT 0);
             ''')
             # Add history fields once without discarding existing jobs.
             columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
             for name, definition in [('origin', "TEXT NOT NULL DEFAULT '{}'"),
                                      ('started', 'REAL'), ('finished', 'REAL'),
-                                     ('parameters', "TEXT NOT NULL DEFAULT '{}'")]:
+                                     ('parameters', "TEXT NOT NULL DEFAULT '{}'") ,
+                                     ('precise_mode', 'INTEGER NOT NULL DEFAULT 0')]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
 
@@ -153,6 +155,7 @@ class Store:
         results = json.loads(row['results'])
         return dict(id=row['id'], status=row['status'], message=row['message'], created=row['created'],
                     prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
+                    precise_mode=bool(row['precise_mode']),
                     updated=row['updated'], started=row['started'], finished=row['finished'],
                     origin=json.loads(row['origin']),
                     sources=[f'/api/uploads/{value}' for value in sources],
@@ -218,7 +221,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             store.update(job_id, 'running', '正在準備電腦…')
             LOG.info('Job started id=%s workflow=%s', job_id, row['workflow'])
             try:
-                payload = dict(prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']))
+                payload = dict(prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
+                               precise_mode=bool(row['precise_mode']))
                 sources = [store.state / 'uploads' / f'{value}.png' for value in json.loads(row['sources'])]
                 output = store.output / job_id
                 output.mkdir(exist_ok=True)
@@ -296,7 +300,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @app.get('/api/session')
     def session(request: Request):
         row = store.session(request)
-        return dict(csrf=row['csrf'], api_version=6, **settings.read())
+        return dict(csrf=row['csrf'], api_version=7, **settings.read())
 
     @app.get('/api/settings')
     def read_settings(request: Request):
@@ -388,6 +392,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             raise HTTPException(422, '請輸入提示詞。')
         if value.workflow == 'reference' and len(value.images) < 2:
             raise HTTPException(422, '多圖參考生成至少需要 2 張參考圖片。')
+        if value.workflow in ('superduper', 'nsfw_adv') and value.images:
+            raise HTTPException(422, '這個 ComfyUI 工作流目前只支援文字生成。')
         try:
             defaults = settings.read()['generation'].get(value.workflow, {})
             parameters = validate_parameters(value.parameters.model_dump(exclude_none=True) if value.parameters is not None
@@ -407,10 +413,10 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 identifier(upload_id)
                 if not db.execute('SELECT id FROM uploads WHERE id=?', (upload_id,)).fetchone():
                     raise HTTPException(422, '找不到上傳圖片，請重新選擇。')
-            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt.strip(),
                         value.workflow, json.dumps(value.images), '[]', now, now, json.dumps(value.origin.model_dump()),
-                        json.dumps(parameters)))
+                        json.dumps(parameters), int(value.precise_mode)))
         wake.set()
         LOG.info('Job queued id=%s', job_id)
         return store.public_job(store.job(job_id))

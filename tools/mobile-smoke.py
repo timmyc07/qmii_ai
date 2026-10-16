@@ -10,7 +10,7 @@ from PIL import Image
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--url', default='http://127.0.0.1:8787')
-parser.add_argument('--workflow', choices=['quick', 'reference'], default='quick')
+parser.add_argument('--workflow', choices=['quick', 'reference', 'superduper', 'nsfw_adv'], default='quick')
 parser.add_argument('--image', type=Path, action='append')
 args = parser.parse_args()
 url = args.url.rstrip('/')

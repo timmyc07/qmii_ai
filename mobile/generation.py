@@ -15,10 +15,12 @@ FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
 def generate(payload, sources, output_dir, progress):
     workflow = payload['workflow']
-    if workflow not in ('quick', 'reference'):
+    if workflow not in ('quick', 'reference', 'superduper', 'nsfw_adv'):
         raise RuntimeError('不支援的生成模式。')
     if workflow == 'reference' and len(sources) < 2:
         raise RuntimeError('多圖參考生成至少需要 2 張參考圖片。')
+    if workflow in ('superduper', 'nsfw_adv') and sources:
+        raise RuntimeError('這個 ComfyUI 工作流目前只支援文字生成。')
     params = validate_parameters(payload.get('parameters', {}))
 
     def new_seed(index=0):
@@ -26,13 +28,32 @@ def generate(payload, sources, output_dir, progress):
 
     progress('等待電腦可用…')
     with gpu_lock():
+        prompt = payload['prompt']
+        if payload.get('precise_mode'):
+            from .precision import rewrite
+            prompt = rewrite(prompt, bool(sources), new_seed(), progress)
+        if workflow == 'superduper':
+            from .superduper import run
+            output = output_dir / '0.png'
+            run(params, prompt, new_seed(), output, progress)
+            clean_output(output)
+            progress('SuperDuper 生成完成', ['0.png'])
+            return ['0.png']
+        if workflow == 'nsfw_adv':
+            from .nsfw_adv import run
+            output = output_dir / '0.png'
+            run(params, prompt, new_seed(), output, progress)
+            clean_output(output)
+            progress('NSFW Adv 群組生成完成', ['0.png'])
+            return ['0.png']
+
         if workflow == 'reference':
             progress(f'正在融合 {len(sources)} 張參考圖片…')
             output = output_dir / '0.png'
             labels = '、'.join(f'<image{i}>' for i in range(1, len(sources) + 1))
             prompt = (f'請根據以下參考圖片重新創作一張全新的單一圖片。參考圖片依序標記為 {labels}。'
                       '請依照使用者提示詞，參考圖片中的主體、風格、材質、色彩或構圖來重新生成；'
-                      f'不要把參考圖片直接拼貼、排列、重疊或顯示在輸出中。使用者提示詞：\n{payload["prompt"]}')
+                      f'不要把參考圖片直接拼貼、排列、重疊或顯示在輸出中。使用者提示詞：\n{prompt}')
             run_turbo(prompt, sources, output, new_seed(), params)
             clean_output(output)
             progress('多圖參考生成完成', ['0.png'])
@@ -42,7 +63,7 @@ def generate(payload, sources, output_dir, progress):
         for index, source in enumerate(sources or [None]):
             progress(f'正在生成第 {index + 1}/{max(1, len(sources))} 張…')
             output = output_dir / f'{index}.png'
-            run_turbo(payload['prompt'], [source] if source else [], output, new_seed(index), params)
+            run_turbo(prompt, [source] if source else [], output, new_seed(index), params)
             clean_output(output)
             results.append(output.name)
             progress(f'已完成 {index + 1}/{max(1, len(sources))} 張', list(results))

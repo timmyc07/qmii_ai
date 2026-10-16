@@ -9,9 +9,9 @@ const { chromium } = require('playwright');
   const submissions = [];
   const server = http.createServer((request, response) => {
     const reply = value => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(value)); };
-    if (request.url === '/api/session') return reply({ csrf: 'test', presets: [], fixedPrompt: '', generation: {}, revision: '' });
+    if (request.url === '/api/session') return reply({ csrf: 'test', presets: [], preciseMode: false, generation: {}, revision: '' });
     if (request.url === '/api/jobs' && request.method === 'GET') return reply({ jobs: [] });
-    if (request.url === '/api/settings') return reply({ presets: [], fixedPrompt: '', generation: {}, revision: '' });
+    if (request.url === '/api/settings') return reply({ presets: [], preciseMode: false, generation: {}, revision: '' });
     if (request.url === '/api/jobs' && request.method === 'POST') {
       let body = ''; request.on('data', value => body += value); request.on('end', () => {
         const value = JSON.parse(body); submissions.push(value);
@@ -32,11 +32,16 @@ const { chromium } = require('playwright');
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
-    assert.equal(await page.locator('#workflow option').count(), 2);
+    assert.equal(await page.locator('#workflow option').count(), 4);
     assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 6);
     assert.match(await page.locator('#generation-parameters').textContent(), /調高.*調低/s);
-    assert.equal(await page.locator('body').innerText().then(text => /ComfyUI|LoRA|Chroma|FLUX|Wan 2\.2/.test(text)), false);
-    console.log('Mobile studio UI passed: Turbo-only modes.');
+    await page.selectOption('#workflow', 'superduper');
+    assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 7);
+    assert.equal(await page.locator('#files').isDisabled(), true);
+    await page.selectOption('#workflow', 'nsfw_adv');
+    assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 8);
+    await page.check('#precise-mode');
+    console.log('Mobile studio UI passed: Turbo, ComfyUI groups, and precise mode.');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

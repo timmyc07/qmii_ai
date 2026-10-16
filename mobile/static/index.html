@@ -40,8 +40,9 @@
       </details>
       <h2>我的魔法按鈕</h2><div id="presets" class="presets"></div>
       <button id="new-preset" type="button" class="quiet">＋ 新增按鈕</button>
-      <details id="parameter-panel"><summary>生成參數</summary><p class="note">留白使用 Qwen Image Turbo 配方。Euler 採樣器與 Turbo Sigma 排程固定。</p><div id="generation-parameters" class="parameter-grid"></div><button id="reset-parameters" class="quiet" type="button">還原配方</button></details><h2>固定提示詞</h2><label for="fixed">每次自動加入的提示詞</label>
-      <textarea id="fixed" rows="4" maxlength="4000" placeholder="例如：保留人物五官、自然光線…"></textarea>
+      <details id="parameter-panel"><summary>生成參數</summary><p class="note">留白使用所選工作流配方。</p><div id="generation-parameters" class="parameter-grid"></div><button id="reset-parameters" class="quiet" type="button">還原配方</button></details><h2>精準模式</h2>
+      <label class="toggle-setting" for="precise-mode"><input id="precise-mode" type="checkbox"> 啟用 Qwen Image 2.1 提示詞精準重寫</label>
+      <p class="note">啟用後會先用指定模板整理提示詞，再交給所選生成工作流。</p>
       <div class="setting-actions"><button id="save-settings" type="button" class="primary">儲存共用設定</button><button id="reload-settings" type="button" class="quiet">重新載入</button></div>
       <p id="settings-status" class="note" role="status">所有已配對設備共用</p>
       <button id="show-library" type="button" class="quiet">▧ 開啟作品庫</button>
@@ -57,7 +58,7 @@
       <div class="composer-tools">
         <label class="upload">＋ 圖片<input id="files" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple></label>
         <label class="sr-only" for="workflow">工作流</label>
-        <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option></select>
+        <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option><option value="superduper">SuperDuper + pussyV2</option><option value="nsfw_adv">NSFW Adv 群組</option></select>
         <button id="send" class="primary" type="submit">送出 ↑</button>
       </div>
       <p class="note">由你的電腦生成 · 完整 Prompt 與來源保留於共用任務</p>

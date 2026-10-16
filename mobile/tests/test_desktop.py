@@ -69,9 +69,9 @@ with patch('mobile.settings.SettingsStore.read', side_effect=RuntimeError('工�
                     desktop.connect()
                     browser.connect()
                     value = desktop.request('/api/settings')
-                    value['fixedPrompt'] = '跨設備'
+                    value['preciseMode'] = True
                     desktop.request('/api/settings', value, method='PUT')
-                    self.assertEqual(browser.request('/api/settings')['fixedPrompt'], '跨設備')
+                    self.assertTrue(browser.request('/api/settings')['preciseMode'])
                     job = desktop.request('/api/jobs', dict(prompt='共同工作流', workflow='quick',
                                                            images=[], request_id='e' * 32))
                     self.assertEqual(browser.request('/api/jobs')['jobs'][0]['id'], job['id'])

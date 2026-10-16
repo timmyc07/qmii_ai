@@ -29,7 +29,7 @@ const { chromium } = require('playwright');
           invoke: async name => {
             const test = window.testMobile;
             test.calls.push(name);
-            if (name === 'load_settings') return { presets: [], fixedPrompt: '' };
+            if (name === 'load_settings') return { presets: [], preciseMode: false };
             if (name === 'studio_jobs') return { jobs: [{ id: 'fixture', workflow: 'quick', prompt: '其他設備提交', message: '已排隊', created: 1792000000, started: 1792000001, finished: 1792000010, origin: { platform: 'Windows 桌面', device: '<測試電腦>', user: '小迷', device_id: 'fixture-device' }, results: [] }] };
             if (name === 'mobile_status') {
               if (test.fail) throw new Error('Test status failure');

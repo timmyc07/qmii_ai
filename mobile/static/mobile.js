@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 let csrf = '', selected = [], timer, installPrompt, submitting = false;
 const cards = new Map();
 $('workflow').onchange = renderParameters;
-let settings = { presets: [], fixedPrompt: '', revision: '' }, dirty = false, editingId = null, libraryOffset = 0;
+let settings = { presets: [], preciseMode: false, revision: '' }, dirty = false, editingId = null, libraryOffset = 0;
 
 function browserPlatform() {
   const ua = navigator.userAgent;
@@ -31,14 +31,20 @@ function jobTime(value) { return value ? new Date(value * 1000).toLocaleString('
 function parameterKey() { return $('workflow').value; }
 function currentParameters() { return Object.fromEntries(Object.entries(settings.generation?.[parameterKey()] || {}).filter(([, value]) => value !== null)); }
 function renderParameters() {
+  const superduper = parameterKey() === 'superduper';
+  const nsfwAdv = parameterKey() === 'nsfw_adv';
   const fields = [
     ['width', '寬度 Width', 256, 2048, 32, '1024', '調高會增加水平空間、細節、耗時與記憶體；調低會更快但細節減少。須為 32 的倍數。'],
-    ['height', '高度 Height', 256, 2048, 32, '1024', '調高會增加垂直空間、細節、耗時與記憶體；調低會更快但細節減少。須為 32 的倍數。'],
-    ['steps', '步數 Steps', 4, 60, 1, '8', '8 是 Turbo 官方配方。調高會變慢且不保證更清晰；調低會更快，但細節與穩定度通常下降。'],
-    ['cfg', '提示詞引導 CFG', 1, 15, .1, '1', '1 是 Turbo 原生值。調高會加強提示詞約束，但更慢且過高容易失真；最低為 1。'],
+    ['height', '高度 Height', 256, 2048, 32, (superduper || nsfwAdv) ? '1536' : '1024', '調高會增加垂直空間、細節、耗時與記憶體；調低會更快但細節減少。須為 32 的倍數。'],
+    ['steps', '步數 Steps', 4, 60, 1, superduper ? '40' : nsfwAdv ? '10' : '8', superduper ? '雙階段取樣的總步數。調高可能更穩定但更慢；調低更快，但結構與細節容易不足。' : nsfwAdv ? '作者範例為 10 步；調高更慢且可能偏離 Lightning 配方，調低可能損失細節。' : '8 是 Turbo 官方配方。調高會變慢且不保證更清晰；調低會更快，但細節與穩定度通常下降。'],
+    ['cfg', '提示詞引導 CFG', 1, 15, .1, superduper ? '2' : '1', superduper ? '第二階段的提示詞強度。調高會更貼近描述，過高容易僵硬或出現瑕疵；調低更自由但可能偏題。' : nsfwAdv ? '作者建議 CFG 1；調高可能破壞 LoKr 與 Lightning 的平衡。' : '1 是 Turbo 原生值。調高會加強提示詞約束，但更慢且過高容易失真；最低為 1。'],
     ['seed', '種子（留白隨機）', 0, 9007199254740991, 1, '隨機', '相同設定與種子可重現結果。數字大小沒有強弱之分，換數字就是換構圖與細節。'],
     ['negative', '負面提示詞', undefined, undefined, undefined, '留白', '描述不想出現的內容；CFG=1 時幾乎不起作用，提高 CFG 後才會較明顯。']
   ];
+  if (superduper) fields.push(['lora_strength', 'LoRA 強度', 0, 2, .05, '.8', '調高會加強 pussyV2 特徵，過高可能扭曲或產生雜訊；調低更接近基礎模型，0 等同關閉。']);
+  if (nsfwAdv) fields.push(
+    ['lokr_strength', 'NSFW Adv LoKr 強度', 0, 2, .05, '1', '作者建議 1.0。調高會放大人體細節與瑕疵風險；調低會減弱效果，0 等同關閉。'],
+    ['lightning_strength', 'Lightning 強度', 0, 2, .05, '.45', '作者建議 0.4～0.5。調高蒸餾效果更強但可能失去細節；調低更接近原模型。']);
   $('generation-parameters').replaceChildren();
   for (const [key, title, min, max, step, placeholder, help] of fields) {
     const label = document.createElement('label'); label.textContent = title;
@@ -55,13 +61,14 @@ function renderParameters() {
     const note = document.createElement('small'); note.className = 'parameter-help'; note.textContent = help;
     label.append(input, note); $('generation-parameters').append(label);
   }
+  $('files').disabled = submitting || superduper || nsfwAdv;
 }
 $('reset-parameters').onclick = () => { if (settings.generation) delete settings.generation[parameterKey()]; dirty = true; renderParameters(); };
 
 function applySettings(value) {
-  settings = { presets: value.presets, fixedPrompt: value.fixedPrompt, revision: value.revision, generation: value.generation || {} };
+  settings = { presets: value.presets, preciseMode: value.preciseMode ?? false, revision: value.revision, generation: value.generation || {} };
   renderParameters();
-  $('fixed').value = settings.fixedPrompt;
+  $('precise-mode').checked = settings.preciseMode;
   dirty = false; renderPresets(); $('settings-status').textContent = '已與主機同步';
 }
 
@@ -87,7 +94,7 @@ async function saveSettings(presets = settings.presets) {
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return false;
   try {
     const value = await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ presets, fixedPrompt: $('fixed').value, generation: settings.generation || {}, revision: settings.revision }) });
+      body: JSON.stringify({ presets, preciseMode: $('precise-mode').checked, generation: settings.generation || {}, revision: settings.revision }) });
     applySettings(value); toast('共用設定已儲存。'); return true;
   } catch (error) { toast(error.message); return false; }
 }
@@ -135,9 +142,9 @@ function showLogin() {
   document.querySelectorAll('.job').forEach(node => node.remove());
   selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
   $('studio').classList.add('hidden'); $('logout').classList.add('hidden'); $('login-view').classList.remove('hidden');
-  $('fixed').value = ''; $('prompt').value = ''; $('presets').replaceChildren(); $('artworks').replaceChildren();
+  $('precise-mode').checked = false; $('prompt').value = ''; $('presets').replaceChildren(); $('artworks').replaceChildren();
   $('preset-editor').close(); $('preview').close(); $('preview-image').removeAttribute('src');
-  settings = { presets: [], fixedPrompt: '', revision: '' }; dirty = false;
+  settings = { presets: [], preciseMode: false, revision: '' }; dirty = false;
 }
 
 async function studio(session) {
@@ -231,27 +238,28 @@ $('login-form').onsubmit = async event => {
 $('composer').onsubmit = async event => {
   event.preventDefault(); if (submitting) return;
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
-  const prompt = [$('fixed').value.trim(), $('prompt').value.trim()].filter(Boolean).join('\n\n');
+  const prompt = $('prompt').value.trim();
   if (!prompt || prompt.length > 8000) { toast('請輸入提示詞，合計最多 8000 字。'); return; }
   if ($('workflow').value === 'reference' && selected.length < 2) { toast('多圖參考至少需要 2 張參考圖片。'); return; }
+  if (['superduper', 'nsfw_adv'].includes($('workflow').value) && selected.length) { toast('這個 ComfyUI 工作流目前只支援文字生成，請先移除圖片。'); return; }
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
   try {
     for (const value of selected) {
       if (!value.id) value.id = (await api('/api/uploads', { method: 'POST', headers: { 'Content-Type': value.file.type || 'application/octet-stream' }, body: value.file })).id;
     }
     // Retain the request ID after an uncertain response so retry cannot duplicate a GPU task.
-    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), currentParameters()]);
+    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), currentParameters(), $('precise-mode').checked]);
     if ($('composer').pendingSignature !== signature) { $('composer').pendingSignature = signature; $('composer').pendingId = crypto.randomUUID().replaceAll('-', ''); }
-    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), request_id: $('composer').pendingId, origin: jobOrigin(), parameters: currentParameters() });
+    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), precise_mode: $('precise-mode').checked, request_id: $('composer').pendingId, origin: jobOrigin(), parameters: currentParameters() });
     renderJob(job); $('welcome').classList.add('hidden'); $('prompt').value = '';
     $('composer').pendingSignature = ''; selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
     toast('已交給你的電腦處理。'); await refresh();
   } catch (error) { toast(error.message); }
-  finally { submitting = false; $('send').disabled = false; $('files').disabled = false; $('send').textContent = '送出 ↑'; }
+  finally { submitting = false; $('send').disabled = false; renderParameters(); $('send').textContent = '送出 ↑'; }
 };
 
 $('logout').onclick = async () => { try { await api('/api/logout', { method: 'POST' }); showLogin(); } catch (error) { toast(error.message); } };
-$('fixed').oninput = () => { dirty = true; $('settings-status').textContent = '尚未儲存'; };
+$('precise-mode').onchange = () => { dirty = true; $('settings-status').textContent = '尚未儲存'; };
 $('save-settings').onclick = () => saveSettings();
 $('reload-settings').onclick = async () => { try { applySettings(await api('/api/settings')); } catch (error) { toast(error.message); } };
 $('new-preset').onclick = () => openPreset();

@@ -192,6 +192,7 @@ async fn generate_images(
     images: Vec<String>,
     workflow: String,
     parameters: serde_json::Value,
+    precise_mode: bool,
 ) -> Result<(), String> {
     if prompt.trim().is_empty() || prompt.len() > 32000 || images.len() > 4 {
         return Err("請檢查提示詞與圖片數量（最多 4 張）。".into());
@@ -200,7 +201,7 @@ async fn generate_images(
         bridge(
             "generate",
             serde_json::json!({"prompt": prompt, "images": images, "workflow": workflow,
-                "parameters": parameters}),
+                "parameters": parameters, "precise_mode": precise_mode}),
             Some(app),
         )
         .map(|_| ())

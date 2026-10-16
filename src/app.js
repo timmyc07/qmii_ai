@@ -2,7 +2,7 @@ const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
 
-const state = { presets: [], fixedPrompt: '', revision: '', images: [], generating: false, jobs: [], workflow: 'quick', generation: {} };
+const state = { presets: [], preciseMode: false, revision: '', images: [], generating: false, jobs: [], workflow: 'quick', generation: {} };
 const MAX_REFERENCE_IMAGES = 4;
 const $ = (id) => document.getElementById(id);
 const presetList = $('preset-list');
@@ -18,7 +18,7 @@ function jobTime(value) {
 
 function renderSharedJob(job) {
   const origin = job.origin || {};
-  const workflows = { quick: '快速生成', reference: '多圖參考' };
+  const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper + pussyV2', nsfw_adv: 'NSFW Adv 群組' };
   const endLabel = job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
     <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span></div>
@@ -145,7 +145,12 @@ function renderWorkflow() {
   renderParameters();
   $('workflow-help').textContent = state.workflow === 'reference'
     ? '上傳 2～4 張圖片，由 Qwen Image Turbo 融合參考生成一張作品。'
-    : 'Qwen Image Turbo 文字生圖；有圖片時逐張修改。';
+    : state.workflow === 'superduper'
+      ? 'ComfyUI 雙階段工作流，套用 pussyV2 LoRA 與四段局部細修；目前只支援文字生成。'
+      : state.workflow === 'nsfw_adv'
+        ? '作者建議配置群組：NSFW Adv LoKr 1.0、Lightning 0.45、res_2s、bong_tangent、10 Steps、CFG 1。'
+      : 'Qwen Image Turbo 文字生圖；有圖片時逐張修改。';
+  $('upload-images').disabled = state.generating || ['superduper', 'nsfw_adv'].includes(state.workflow);
 }
 
 function renderPresets() {
@@ -160,23 +165,31 @@ function renderPresets() {
   }));
 }
 
-function renderFixedState() {
-  $('fixed-state').textContent = state.fixedPrompt.trim() ? '已啟用' : '未設定';
-  $('fixed-state').style.color = state.fixedPrompt.trim() ? '#8b69b5' : '';
+function renderPreciseState() {
+  $('precise-state').textContent = state.preciseMode ? '開啟' : '關閉';
+  $('precise-state').style.color = state.preciseMode ? '#8b69b5' : '';
+  $('precise-mode').setAttribute('aria-pressed', String(state.preciseMode));
 }
 
 function parameterKey() { return state.workflow; }
 function currentParameters() { return Object.fromEntries(Object.entries(state.generation[parameterKey()] || {}).filter(([, value]) => value !== null)); }
 
 function parameterFields() {
-  return [
-    { key: 'width', label: '寬度 Width', min: 256, max: 2048, step: 32, defaultValue: 1024, help: '輸出圖片的水平像素。調高：畫面更寬、細節與耗時及記憶體用量增加。調低：更快、更省記憶體，但細節與可容納內容減少。必須是 32 的倍數。' },
-    { key: 'height', label: '高度 Height', min: 256, max: 2048, step: 32, defaultValue: 1024, help: '輸出圖片的垂直像素。調高：畫面更高、細節與耗時及記憶體用量增加。調低：更快、更省記憶體，但細節減少。必須是 32 的倍數。' },
-    { key: 'steps', label: '步數 Steps', min: 4, max: 60, step: 1, defaultValue: 8, help: '模型反覆去除雜訊的次數。8 是 Turbo 官方蒸餾配方。調高：明顯變慢，且會改用一般排程，不保證更清晰，可能反而失真。調低：更快，但通常細節、文字與構圖穩定度下降。' },
-    { key: 'cfg', label: '提示詞引導 CFG', min: 1, max: 15, step: .1, defaultValue: 1, help: '控制模型貼近提示詞的強度。1 是 Turbo 原生值。調高：提示詞約束與負面提示詞作用增強，但速度變慢，過高容易過度銳化、色彩僵硬或產生瑕疵。最低為 1；Turbo 不建議為追求畫質而提高。' },
+  const superduper = state.workflow === 'superduper';
+  const nsfwAdv = state.workflow === 'nsfw_adv';
+  const fields = [
+    { key: 'width', label: '寬度 Width', min: 256, max: 2048, step: 32, defaultValue: 1024, help: '輸出圖片的水平像素。調高：畫面更寬、細節、耗時與顯存用量增加。調低：更快更省顯存，但細節與可容納內容減少。必須是 32 的倍數。' },
+    { key: 'height', label: '高度 Height', min: 256, max: 2048, step: 32, defaultValue: (superduper || nsfwAdv) ? 1536 : 1024, help: '輸出圖片的垂直像素。調高：畫面更高、細節、耗時與顯存用量增加。調低：更快更省顯存，但細節減少。必須是 32 的倍數。' },
+    { key: 'steps', label: '步數 Steps', min: 4, max: 60, step: 1, defaultValue: superduper ? 40 : nsfwAdv ? 10 : 8, help: superduper ? '雙階段取樣的總去噪步數，會依原工作流比例切成前後兩段。調高：細化時間更長、可能更穩定但耗時增加；調低：更快，但結構與細節容易不足。' : nsfwAdv ? '作者範例使用 10 步。調高會增加細化時間但可能削弱 Lightning 配方；調低更快，但細節與結構可能不足。' : '模型反覆去除雜訊的次數。8 是 Turbo 官方蒸餾配方。調高：明顯變慢且不保證更清晰；調低：更快，但細節、文字與構圖穩定度通常下降。' },
+    { key: 'cfg', label: '提示詞引導 CFG', min: 1, max: 15, step: .1, defaultValue: superduper ? 2 : 1, help: superduper ? '控制第二階段貼近提示詞的強度。調高：提示詞約束與對比更強，過高會僵硬、過曝或出現瑕疵；調低：畫面更自由自然，但可能偏離描述。' : nsfwAdv ? '作者建議 CFG 1。調高會加強提示詞約束，但可能破壞 LoKr 與 Lightning 的原始平衡；最低為 1。' : '控制模型貼近提示詞的強度。1 是 Turbo 原生值。調高：提示詞約束增強，但更慢且過高容易失真；最低為 1。' },
     { key: 'seed', label: '種子 Seed', min: 0, max: 9007199254740991, step: 1, defaultValue: '隨機', help: '決定初始雜訊；相同提示詞、尺寸與其他參數搭配相同種子可重現結果。數字大小沒有強弱之分，換一個數字只是換一種構圖與細節。留白會每次隨機。' },
     { key: 'negative', label: '負面提示詞 Negative prompt', defaultValue: '留白', help: '描述不希望出現的內容。CFG=1 時 Turbo 幾乎不使用負面提示詞；提高 CFG 後作用才會變明顯。內容越多不一定越好，過度限制可能破壞構圖。' }
   ];
+  if (superduper) fields.push({ key: 'lora_strength', label: 'LoRA 強度', min: 0, max: 2, step: .05, defaultValue: .8, help: '控制 pussyV2 LoRA 對模型與文字編碼的影響。調高：LoRA 特徵與觸發詞效果更明顯，過高可能扭曲或產生雜訊；調低：更接近基礎模型，設為 0 等同關閉 LoRA。' });
+  if (nsfwAdv) fields.push(
+    { key: 'lokr_strength', label: 'NSFW Adv LoKr 強度', min: 0, max: 2, step: .05, defaultValue: 1, help: '作者建議 1.0，用於加強人體細節。調高會放大 LoKr 特徵，也更容易產生形體瑕疵；調低會減弱效果，0 等同關閉。' },
+    { key: 'lightning_strength', label: 'Lightning 強度', min: 0, max: 2, step: .05, defaultValue: .45, help: '作者建議 0.4～0.5，用來配合低步數加速。調高會加重蒸餾效果，過高可能失去細節；調低會接近原模型，但 10 步可能不足，0 等同關閉。' });
+  return fields;
 }
 
 function renderParameters() {
@@ -189,6 +202,11 @@ function renderParameters() {
     else values[input.dataset.parameter] = input.dataset.parameter === 'negative' ? input.value : Number(input.value);
     state.generation[parameterKey()] = values;
   });
+  $('recipe-lock').textContent = state.workflow === 'superduper'
+    ? '配方固定：ComfyUI、雙 KSampler、APG、FreSca，以及四段 Impact Pack 局部細修。'
+    : state.workflow === 'nsfw_adv'
+      ? '群組固定：Qwen Image FP8、NSFW Adv LoKr、Lightning 8-step LoRA、res_2s 採樣器與 bong_tangent 排程。'
+    : '配方固定：Euler 採樣器、Turbo 8-step Sigma 排程。步數不是 8 時會改用模型的一般排程。';
   $('save-parameters').onclick = async () => { if (await persistSettings()) toast('此模式參數已儲存，所有設備共用'); };
   $('reset-parameters').onclick = async () => {
     const previous = state.generation[parameterKey()];
@@ -198,7 +216,7 @@ function renderParameters() {
   };
 }
 
-async function persistSettings(settings = { presets: state.presets, fixedPrompt: state.fixedPrompt }) {
+async function persistSettings(settings = { presets: state.presets, preciseMode: state.preciseMode }) {
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return false;
   try { const saved = await invoke('save_settings', { settings: { generation: state.generation, ...settings, revision: state.revision } }); state.revision = saved.revision; return true; }
   catch (e) { toast(`儲存失敗：${e}`); return false; }
@@ -233,7 +251,7 @@ function openPresetEditor(preset = null) {
       : [...state.presets, { id: crypto.randomUUID(), name, prompt: text }];
     save.disabled = true;
     save.textContent = '正在儲存…';
-    const saved = await persistSettings({ presets: nextPresets, fixedPrompt: state.fixedPrompt });
+    const saved = await persistSettings({ presets: nextPresets, preciseMode: state.preciseMode });
     save.disabled = false;
     save.textContent = '♡ 儲存按鈕';
     if (!saved) return;
@@ -258,7 +276,7 @@ function openPresetManager() {
     };
     row.querySelector('.delete').onclick = async () => {
       const nextPresets = state.presets.filter(p => p.id !== id);
-      if (!await persistSettings({ presets: nextPresets, fixedPrompt: state.fixedPrompt })) return;
+      if (!await persistSettings({ presets: nextPresets, preciseMode: state.preciseMode })) return;
       state.presets = nextPresets;
       renderPresets(); updateRows(); toast('已移除這個按鈕');
     };
@@ -272,21 +290,12 @@ function openPresetManager() {
   };
 }
 
-function openFixedEditor() {
-  const modal = openModal('固定提示詞 ✧', `
-    <p class="modal-subtitle">每次創作都會自動附加在你輸入的內容前面。留白時也可以只使用固定提示詞。</p>
-    <label class="form-field"><span>我的固定風格或規則</span><textarea id="fixed-prompt" placeholder="例：畫面保持溫柔自然的光線，保留主體的臉部特徵…">${escapeHtml(state.fixedPrompt)}</textarea></label>
-    <div class="modal-actions"><button class="secondary-button" id="fixed-clear">清除</button><button class="secondary-button" id="fixed-cancel">取消</button><button class="primary-button" id="fixed-save">♡ 儲存</button></div>`);
-  modal.querySelector('#fixed-cancel').onclick = () => { modalRoot.innerHTML = ''; };
-  modal.querySelector('#fixed-save').onclick = async () => {
-    const nextPrompt = modal.querySelector('#fixed-prompt').value.trim();
-    if (!await persistSettings({ presets: state.presets, fixedPrompt: nextPrompt })) return;
-    state.fixedPrompt = nextPrompt; renderFixedState(); modalRoot.innerHTML = ''; toast('固定提示詞已儲存');
-  };
-  modal.querySelector('#fixed-clear').onclick = async () => {
-    if (!await persistSettings({ presets: state.presets, fixedPrompt: '' })) return;
-    state.fixedPrompt = ''; renderFixedState(); modalRoot.innerHTML = ''; toast('固定提示詞已清除');
-  };
+async function togglePreciseMode() {
+  const previous = state.preciseMode;
+  state.preciseMode = !previous;
+  renderPreciseState();
+  if (!await persistSettings()) { state.preciseMode = previous; renderPreciseState(); return; }
+  toast(state.preciseMode ? '精準模式已開啟，會先重寫提示詞' : '精準模式已關閉');
 }
 
 const mobile = { status: null, busy: '', error: '', revision: 0, panel: null };
@@ -410,16 +419,17 @@ async function submitPrompt() {
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
   if (state.generating) return;
   const typed = promptInput.value.trim();
-  const finalPrompt = [state.fixedPrompt.trim(), typed].filter(Boolean).join('\n\n');
-  if (!finalPrompt) { toast('先寫下想法，或設定固定提示詞吧 ♡'); promptInput.focus(); return; }
+  const finalPrompt = typed;
+  if (!finalPrompt) { toast('先寫下想法吧 ♡'); promptInput.focus(); return; }
   const images = [...state.images];
   const parameters = currentParameters();
   if (state.workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
+  if (['superduper', 'nsfw_adv'].includes(state.workflow) && images.length) { toast('這個 ComfyUI 工作流目前只支援文字生成，請先移除圖片'); return; }
   $('welcome').classList.add('hidden');
   appendUserMessage(finalPrompt, images, state.workflow);
   const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.innerHTML = '<span class="spinner"></span><span>正在準備模型…</span>'; feed.appendChild(progress);
   state.currentProgress = progress; promptInput.value = ''; resizePrompt(); state.images = []; renderImageTray(); setBusy(true); scrollFeed(true);
-  try { await invoke('generate_images', { prompt: finalPrompt, images, workflow: state.workflow, parameters }); }
+  try { await invoke('generate_images', { prompt: finalPrompt, images, workflow: state.workflow, parameters, preciseMode: state.preciseMode }); }
   catch (e) { progress.className = 'message error-card'; progress.textContent = `工作無法啟動：${e}`; setBusy(false); toast('生成啟動失敗'); }
 }
 
@@ -505,7 +515,7 @@ async function init() {
   // Do not pass the click event as the optional preset argument. Otherwise the
   // editor mistakes the event object for an existing preset and opens in edit mode.
   $('new-preset-shortcut').onclick = () => openPresetEditor();
-  $('fixed-settings').onclick = openFixedEditor;
+  $('precise-mode').onclick = togglePreciseMode;
   $('mobile-connection').onclick = openMobileConnection;
   $('sidebar-collapse').onclick = () => setSidebarCollapsed(true);
   $('sidebar-toggle').onclick = () => {
@@ -525,7 +535,8 @@ async function init() {
     renderImageTray();
     toast(state.workflow === 'reference'
         ? '請上傳 2～4 張參考圖，模型會依提示詞融合創作一張新圖'
-        : '已切換為快速生成');
+        : state.workflow === 'superduper' ? '已切換為 SuperDuper 文字生成'
+          : state.workflow === 'nsfw_adv' ? '已切換為 NSFW Adv 群組' : '已切換為快速生成');
   };
   $('window-minimize').onclick = e => { e.stopPropagation(); invoke('window_minimize').catch(err => toast(String(err))); };
   $('window-maximize').onclick = e => { e.stopPropagation(); invoke('window_toggle_maximize').catch(err => toast(String(err))); };
@@ -549,19 +560,19 @@ async function init() {
   try {
     const settings = await invoke('load_settings');
     state.presets = Array.isArray(settings.presets) ? settings.presets : [];
-    state.fixedPrompt = settings.fixedPrompt ?? '';
+    state.preciseMode = settings.preciseMode ?? false;
     state.revision = settings.revision ?? ''; state.generation = settings.generation || {};
   } catch (e) { toast(`載入設定失敗：${e}`); }
   setSidebarCollapsed(localStorage.getItem('qianmi-sidebar-collapsed') === 'true');
-  renderPresets(); renderFixedState(); resizePrompt(); renderWorkflow();
+  renderPresets(); renderPreciseState(); resizePrompt(); renderWorkflow();
   refreshMobileConnection();
   setInterval(async () => {
     if (document.hidden || state.generating || modalRoot.firstChild) return;
     try {
       const settings = await invoke('load_settings');
       if (settings.revision !== state.revision) {
-        state.presets = settings.presets; state.fixedPrompt = settings.fixedPrompt; state.revision = settings.revision; state.generation = settings.generation || {};
-        renderParameters(); renderPresets(); renderFixedState();
+        state.presets = settings.presets; state.preciseMode = settings.preciseMode; state.revision = settings.revision; state.generation = settings.generation || {};
+        renderParameters(); renderPresets(); renderPreciseState();
       }
     } catch {}
   }, 5000);

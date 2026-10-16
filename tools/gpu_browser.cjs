@@ -36,7 +36,7 @@ const { chromium } = require('playwright');
     const response = await responsePromise;
     if (!response.ok()) throw new Error(`Job submission failed (${response.status()})`);
     const job = await response.json();
-    console.log(JSON.stringify({ jobId: job.id, fixedPrompt: await page.locator('#fixed').inputValue(), browserErrors: errors }));
+    console.log(JSON.stringify({ jobId: job.id, preciseMode: await page.locator('#precise-mode').isChecked(), browserErrors: errors }));
     // GPU work belongs to the host and continues after the browser closes.
     await page.click('#logout');
   } finally { await browser.close(); }
