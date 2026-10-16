@@ -32,26 +32,6 @@
         <button type="button" data-studio-mode="image" aria-pressed="true">✿ 圖片創作</button>
         <button type="button" data-studio-mode="h3_image" aria-pressed="false">▧ 圖片生影片</button>
       </nav>
-      <section id="video-page" class="video-page hidden" aria-labelledby="video-title">
-        <div class="video-heading"><p class="eyebrow">MINIMAX H3 · 有聲影片</p><h1 id="video-title">圖片生影片</h1><p>選擇一張圖片，讓 H3 延續畫面生成動作與聲音。</p></div>
-        <div class="video-layout">
-          <form id="video-form" class="video-form">
-            <div><h2>① 選擇首幀圖片</h2><button id="video-upload" type="button" class="upload-button">＋ 選擇一張圖片</button><div id="video-image-preview"></div><p class="creation-help">會依影片尺寸置中裁切，請確認主體位於畫面中央。</p></div>
-            <label class="form-field"><span>② 影片提示詞：畫面、動作與聲音</span><textarea id="video-prompt" maxlength="8000" rows="10" required placeholder="依時間順序描述動作、鏡頭與聲音。可先載入下方範例，再替換內容。"></textarea></label>
-            <button id="video-example" type="button" class="secondary-button">載入橘貓範例</button>
-            <details class="creation-help"><summary>提示詞格式說明</summary><p>保留首幀參照 Header，以及 integrated_multimodal_description、overall_soundscape、non_diegetic_music 三個標籤；段落間空一行。時間碼須在設定片長內，首幀描述應與圖片一致。無配樂填 N/A。</p></details>
-            <h2>③ 影片設定</h2>
-            <div class="parameter-grid">
-              <label>片長（秒）<input id="video-duration" type="number" min="1" max="15" step="0.1" value="12" required></label>
-              <label>影片尺寸<select id="video-size"><option value="512x896">直式 512 × 896</option><option value="896x512">橫式 896 × 512</option><option value="768x1344">直式 768 × 1344</option><option value="1344x768">橫式 1344 × 768</option></select></label>
-              <label>影片種子<input id="video-seed" type="number" min="0" max="9007199254740991" step="1" placeholder="留白每次隨機"></label>
-            </div>
-            <p class="creation-help">24 fps、有聲 MP4、固定 4 步 Turbo 配方。片長會向上對齊有效幀數；768p 較慢且需要更多記憶體。</p>
-            <div class="video-actions"><button id="video-save-settings" type="button" class="secondary-button">儲存此模式設定</button><button id="video-send" type="submit" class="primary-button">▷ 生成有聲影片</button></div>
-          </form>
-          <div class="video-results"><h2>生成結果</h2><p class="creation-help">影片會儲存在本機作品集，也能從共用任務查看。</p><div id="video-results-h3_image" aria-live="polite"></div></div>
-        </div>
-      </section>
       <section id="conversation" class="conversation" tabindex="0" aria-label="創作對話">
         <div id="welcome" class="welcome">
           <div class="welcome-illustration"><div class="halo"></div><div class="magic-star">✦</div><span class="float-heart h1">♡</span><span class="float-heart h2">✧</span><span class="float-heart h3">✿</span></div>
@@ -61,6 +41,7 @@
           <div class="idea-chips"><button class="idea-chip" data-prompt="一隻奶油色小貓窩在薰衣草花田裡，柔和晨光，童話繪本質感">🐈 奶油貓咪的花田</button><button class="idea-chip" data-prompt="把背景變成夢幻的粉紫色櫻花庭院，保留主體姿勢和光影">🌸 粉紫櫻花庭院</button><button class="idea-chip" data-prompt="柔和的底片攝影風格，暖暖夕陽，細膩自然的顆粒感">☁️ 溫柔底片日常</button></div>
         </div>
         <div id="feed" class="feed"></div>
+        <div id="video-results-h3_image" class="feed hidden"></div>
       </section>
 
       <footer class="composer-area">
@@ -75,10 +56,25 @@
     </main>
     <button id="creation-backdrop" class="creation-backdrop" aria-label="收起創作設定"></button>
     <aside id="creation-panel" class="creation-panel" aria-label="創作設定">
-      <div class="side-title"><span>✧ 創作設定</span><button id="creation-close" class="icon-button" aria-label="收起創作設定">×</button></div>
+      <div class="side-title"><span id="creation-title">✧ 創作設定</span><button id="creation-close" class="icon-button" aria-label="收起創作設定">×</button></div>
+      <div id="image-settings">
       <p class="creation-intro">Qwen Image 2.1 生成設定。</p>
       <div class="creation-section"><h2>生成模式</h2><div class="workflow-picker"><span class="workflow-caption">工作流</span><select id="workflow-mode" class="workflow-native" aria-hidden="true" tabindex="-1"><option value="quick">快速生成</option><option value="reference">多圖參考生成</option><option value="superduper">SuperDuper 群組</option><option value="nsfw_adv">NSFW Adv 群組</option></select><button type="button" id="workflow-trigger" class="workflow-trigger" aria-haspopup="listbox" aria-expanded="false"><span id="workflow-value">快速生成</span><span class="workflow-chevron" aria-hidden="true"></span></button><div id="workflow-menu" class="workflow-menu" role="listbox" aria-label="選擇圖片工作流"><button type="button" role="option" data-value="quick" aria-selected="true">快速生成</button><button type="button" role="option" data-value="reference" aria-selected="false">多圖參考生成</button><button type="button" role="option" data-value="superduper" aria-selected="false">SuperDuper 群組</button><button type="button" role="option" data-value="nsfw_adv" aria-selected="false">NSFW Adv 群組</button></div></div><p id="workflow-help" class="creation-help">Qwen Image Turbo 文字生圖；有圖片時逐張修改。</p></div>
       <div class="creation-section"><h2>生成參數</h2><p class="creation-help">留白沿用所選工作流配方。參數會記錄在任務中，方便重現。</p><div id="generation-parameters" class="parameter-grid"></div><p id="recipe-lock" class="recipe-lock">配方固定：Euler 採樣器、Turbo 8-step Sigma 排程。步數不是 8 時會改用模型的一般排程。</p><button id="save-parameters" class="secondary-button">儲存為此模式預設</button><button id="reset-parameters" class="secondary-button">還原配方</button></div>
+      </div>
+      <form id="video-form" class="hidden">
+        <p class="creation-intro">MiniMax H3 圖片生影片。請在下方上傳一張首幀，並描述畫面、動作與聲音。</p>
+        <button id="video-example" type="button" class="secondary-button">載入橘貓範例</button>
+        <details class="creation-help"><summary>提示詞格式說明</summary><p>保留首幀參照 Header，以及 integrated_multimodal_description、overall_soundscape、non_diegetic_music 三個標籤；段落間空一行。時間碼須在設定片長內，首幀描述應與圖片一致。無配樂填 N/A。</p></details>
+            <h2>影片設定</h2>
+            <div class="parameter-grid">
+              <label>片長（秒）<input id="video-duration" type="number" min="1" max="15" step="0.1" value="12" required></label>
+              <label>影片尺寸<select id="video-size"><option value="512x896">直式 512 × 896</option><option value="896x512">橫式 896 × 512</option><option value="768x1344">直式 768 × 1344</option><option value="1344x768">橫式 1344 × 768</option></select></label>
+              <label>影片種子<input id="video-seed" type="number" min="0" max="9007199254740991" step="1" placeholder="留白每次隨機"></label>
+            </div>
+            <p class="creation-help">24 fps、有聲 MP4、固定 4 步 Turbo 配方。片長會向上對齊有效幀數；768p 較慢且需要更多記憶體。</p>
+            <div class="video-actions"><button id="video-save-settings" type="button" class="secondary-button">儲存此模式設定</button></div>
+      </form>
     </aside>
   </div>
 

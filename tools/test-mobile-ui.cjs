@@ -108,24 +108,25 @@ const { chromium } = require('playwright');
     await page.setViewportSize({ width: 1280, height: 820 });
     await page.fill('#prompt', '圖片草稿');
     await page.click('[data-studio-mode="h3_image"]');
-    assert.equal(await page.locator('#conversation').isVisible(), false);
-    assert.equal(await page.locator('#video-page').isVisible(), true);
+    assert.equal(await page.locator('#conversation').isVisible(), true);
+    assert.equal(await page.locator('.composer-area').isVisible(), true);
+    assert.equal(await page.locator('#video-form').isVisible(), true);
     assert.equal(await page.locator('[data-studio-mode]').count(), 2);
     await page.fill('#video-duration', '6');
     await page.click('#video-save-settings');
     await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('已儲存'));
     await page.evaluate(() => { window.testMobile.openPath = '/fixture.png'; });
-    await page.click('#video-upload');
-    await page.waitForSelector('#video-image-preview img');
+    await page.click('#upload-images');
+    await page.waitForSelector('#image-tray img');
     await page.click('#video-example');
-    assert.match(await page.locator('#video-prompt').inputValue(), /00:06\.000/);
+    assert.match(await page.locator('#prompt').inputValue(), /00:06\.000/);
     await page.fill('#video-seed', '42');
     await page.click('[data-studio-mode="image"]');
     assert.equal(await page.locator('#prompt').inputValue(), '圖片草稿');
     await page.click('[data-studio-mode="h3_image"]');
     assert.equal(await page.locator('#video-duration').inputValue(), '6');
     assert.equal(await page.locator('#video-seed').inputValue(), '42');
-    await page.click('#video-send');
+    await page.click('#send');
     const submitted = await page.evaluate(() => window.testMobile.generation);
     assert.equal(submitted.workflow, 'h3_image');
     assert.deepEqual(submitted.images, ['/fixture.png']);
@@ -137,10 +138,48 @@ const { chromium } = require('playwright');
     assert.equal(await page.locator('#video-results-h3_image video[controls]').count(), 1);
     assert.equal(await page.locator('#feed video').count(), 0);
     await page.click('[data-studio-mode="h3_image"]');
+    await page.evaluate(() => {
+      const target = document.querySelector('#video-results-h3_image');
+      for (let index = 0; index < 10; index++) {
+        const message = document.createElement('article'); message.className = 'message user-message';
+        message.textContent = `鏡頭 ${index + 1}：` + '橘貓在窗邊轉頭，微風吹動窗簾。\n'.repeat(60);
+        target.appendChild(message);
+      }
+    });
+    await page.waitForFunction(() => document.querySelector('#conversation').scrollHeight > document.querySelector('#conversation').clientHeight * 3);
+    for (const viewport of [{ width: 1280, height: 820 }, { width: 390, height: 820 }, { width: 360, height: 520 }]) {
+      await page.setViewportSize(viewport);
+      const geometry = await page.evaluate(() => {
+        const conversation = document.querySelector('#conversation').getBoundingClientRect();
+        const composer = document.querySelector('.composer-area').getBoundingClientRect();
+        return { top: conversation.top, bottom: conversation.bottom, composerTop: composer.top, composerBottom: composer.bottom, height: innerHeight };
+      });
+      assert.ok(geometry.bottom <= geometry.composerTop + 1, 'Transcript must end above the fixed composer');
+      assert.ok(geometry.composerBottom <= geometry.height, 'Long video history must not push composer out of view');
+      await page.locator('#conversation').evaluate(el => { el.scrollTop = el.scrollHeight; });
+      await page.waitForFunction(() => document.querySelector('#latest-message').classList.contains('hidden'));
+      await page.locator('#conversation').hover(); await page.mouse.wheel(0, -700);
+      await page.waitForFunction(() => !document.querySelector('#latest-message').classList.contains('hidden'));
+      const olderPosition = await page.locator('#conversation').evaluate(el => el.scrollTop);
+      await page.evaluate(() => window.testMobile.progress({ payload: { video: '/fixture.mp4', index: 1, total: 1, message: '影片完成', done: true } }));
+      await page.waitForTimeout(350);
+      assert.ok(Math.abs(await page.locator('#conversation').evaluate(el => el.scrollTop) - olderPosition) < 2, 'New video must not pull user away from older messages');
+      await page.click('[data-studio-mode="image"]'); await page.click('[data-studio-mode="h3_image"]');
+      await page.waitForTimeout(100);
+      assert.ok(Math.abs(await page.locator('#conversation').evaluate(el => el.scrollTop) - olderPosition) < 2, 'Mode switching must preserve reading position');
+      await page.click('#latest-message');
+      await page.waitForFunction(() => {
+        const el = document.querySelector('#conversation'); return el.scrollHeight - el.clientHeight - el.scrollTop <= 2;
+      });
+      await page.fill('#prompt', '影片草稿\n'.repeat(120));
+      assert.ok(await page.locator('#prompt').evaluate(el => el.scrollHeight > el.clientHeight), 'Long drafts must scroll inside the composer');
+      assert.ok(await page.locator('.composer-area').evaluate(el => el.getBoundingClientRect().bottom <= innerHeight), 'Long drafts must keep send controls visible');
+      await page.fill('#prompt', '影片草稿');
+    }
     for (const width of [1280, 390, 360]) {
       await page.setViewportSize({ width, height: 820 });
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.querySelector('#video-page').scrollWidth <= document.querySelector('#video-page').clientWidth), true, `Video page overflows at ${width}px`);
-      await page.locator('#video-page').evaluate(el => { el.scrollTop = 0; });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.querySelector('#conversation').scrollWidth <= document.querySelector('#conversation').clientWidth), true, `Video page overflows at ${width}px`);
+      await page.locator('#conversation').evaluate(el => { el.scrollTop = 0; });
       await page.waitForTimeout(350);
       if (width !== 360) await page.screenshot({ path: path.join(__dirname, `../.runtime/h3-video-${width}.png`), fullPage: true });
     }

@@ -2,7 +2,7 @@ const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
 
-const state = { presets: [], preciseMode: false, revision: '', images: [], generating: false, jobs: [], workflow: 'quick', generation: {}, studioMode: 'image', videoDraft: { prompt: '', image: null } };
+const state = { presets: [], preciseMode: false, revision: '', images: [], generating: false, jobs: [], workflow: 'quick', generation: {}, studioMode: 'image', drafts: { image: { prompt: '', images: [] }, h3_image: { prompt: '', images: [] } }, chatScroll: { image: { top: 0, following: true }, h3_image: { top: 0, following: true } } };
 const MAX_REFERENCE_IMAGES = 4;
 const $ = (id) => document.getElementById(id);
 const presetList = $('preset-list');
@@ -10,7 +10,10 @@ const feed = $('feed');
 const modalRoot = $('modal-root');
 const promptInput = $('prompt');
 const conversation = $('conversation');
+const videoFeed = $('video-results-h3_image');
 let followingLatest = true, scrollFrame = 0, previousScrollTop = 0;
+
+function currentFeed() { return state.studioMode === 'h3_image' ? videoFeed : feed; }
 
 function videoParameters() {
   const [width, height] = $('video-size').value.split('x').map(Number);
@@ -19,65 +22,58 @@ function videoParameters() {
   return values;
 }
 
-function saveVideoDraft() {
-  if (state.studioMode === 'image') return;
-  state.videoDraft.prompt = $('video-prompt').value;
-  if ([...$('video-form').querySelectorAll('input, select')].every(input => input.checkValidity())) state.generation.h3_image = videoParameters();
-}
-
 function setStudioMode(mode) {
-  saveVideoDraft();
+  if (mode === state.studioMode) return;
+  state.drafts[state.studioMode] = { prompt: promptInput.value, images: [...state.images] };
+  state.chatScroll[state.studioMode] = { top: conversation.scrollTop, following: followingLatest };
+  if (state.studioMode === 'h3_image' && [...$('video-form').querySelectorAll('input, select')].every(input => input.checkValidity())) state.generation.h3_image = videoParameters();
+  cancelAnimationFrame(scrollFrame); scrollFrame = 0;
   state.studioMode = mode;
   const video = mode === 'h3_image';
   setSidebarOpen(false); setCreationOpen(false);
   $('app-shell').classList.toggle('video-mode', video);
-  $('video-page').classList.toggle('hidden', !video);
+  feed.classList.toggle('hidden', video); videoFeed.classList.toggle('hidden', !video);
+  $('image-settings').classList.toggle('hidden', video); $('video-form').classList.toggle('hidden', !video);
+  $('precise-mode').classList.toggle('hidden', video);
+  $('creation-title').textContent = video ? '✧ 影片設定' : '✧ 創作設定';
+  conversation.setAttribute('aria-label', video ? '影片創作對話' : '圖片創作對話');
+  $('welcome').querySelector('h1').textContent = video ? '讓你的圖片動起來 ♡' : '今天想創作什麼呢？♡';
+  $('welcome').querySelector('.welcome-copy').textContent = video ? '上傳一張首幀，描述接下來的動作與聲音，生成有聲影片。' : '說說你的想法，或選張圖片，讓千迷AI陪你一起改造。';
+  $('welcome').querySelector('.idea-chips').classList.toggle('hidden', video);
+  $('welcome').classList.toggle('hidden', currentFeed().childElementCount > 0);
+  promptInput.value = state.drafts[mode].prompt; state.images = [...state.drafts[mode].images];
+  promptInput.placeholder = video ? '描述影片的畫面、動作與聲音…' : '寫下你的靈感，或先上傳一張圖片…';
+  $('send').title = video ? '生成有聲影片' : '開始創作';
+  resizePrompt(); renderImageTray();
   document.querySelectorAll('[data-studio-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.studioMode === mode)));
-  if (!video) { resizePrompt(); return; }
-  const draft = state.videoDraft, values = state.generation.h3_image || {};
-  $('video-prompt').value = draft.prompt;
+  const savedScroll = state.chatScroll[mode];
+  setFollowingLatest(savedScroll.following);
+  requestAnimationFrame(() => {
+    conversation.scrollTop = savedScroll.following ? conversation.scrollHeight : savedScroll.top;
+    previousScrollTop = conversation.scrollTop;
+  });
+  if (!video) return;
+  const values = state.generation.h3_image || {};
   $('video-duration').value = values.duration ?? 12;
   const size = `${values.width ?? 512}x${values.height ?? 896}`;
   if (![...$('video-size').options].some(option => option.value === size)) $('video-size').add(new Option(size.replace('x', ' × '), size));
   $('video-size').value = size;
   $('video-seed').value = values.seed ?? '';
-  $('video-image-preview').replaceChildren();
-  if (draft.image) { const img = document.createElement('img'); img.src = convertFileSrc(draft.image); img.alt = '影片首幀'; $('video-image-preview').appendChild(img); }
 }
 
 function setupVideoModes() {
   document.querySelectorAll('[data-studio-mode]').forEach(button => button.onclick = () => setStudioMode(button.dataset.studioMode));
-  $('video-upload').onclick = async () => {
-    try {
-      const image = await open({ multiple: false, directory: false, title: '選擇影片首幀', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
-      if (image && state.studioMode === 'h3_image') { state.videoDraft.image = image; setStudioMode('h3_image'); }
-    } catch (error) { toast(`選擇首幀失敗：${error}`); }
-  };
   $('video-example').onclick = () => {
     const duration = $('video-duration').value, end = Number(duration).toFixed(3).padStart(6, '0');
-    $('video-prompt').value = `For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Realistic footage, warm afternoon sunlight, fixed camera. At 00:00.000 the shot matches <Picture 1>: a small orange cat sits on a wooden table beside a window. During the shot the cat slowly turns its head toward the window, blinks and gently moves its tail. The shot ends at 00:${end}.\n\noverall_soundscape: Quiet room ambience, faint birds outside the window. No dialogue.\n\nnon_diegetic_music: N/A`;
+    promptInput.value = `For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Realistic footage, warm afternoon sunlight, fixed camera. At 00:00.000 the shot matches <Picture 1>: a small orange cat sits on a wooden table beside a window. During the shot the cat slowly turns its head toward the window, blinks and gently moves its tail. The shot ends at 00:${end}.\n\noverall_soundscape: Quiet room ambience, faint birds outside the window. No dialogue.\n\nnon_diegetic_music: N/A`;
+    resizePrompt(); setCreationOpen(false); promptInput.focus();
   };
   $('video-save-settings').onclick = async () => {
     for (const input of $('video-form').querySelectorAll('input, select')) if (!input.reportValidity()) return;
     state.generation[state.studioMode] = videoParameters();
     if (await persistSettings()) toast('此影片模式的片長、尺寸與種子已儲存');
   };
-  $('video-form').onsubmit = async event => {
-    event.preventDefault();
-    if (state.generating || !$('video-form').reportValidity()) return;
-    const mode = state.studioMode, draft = state.videoDraft;
-    const prompt = $('video-prompt').value;
-    if (!prompt.trim()) { toast('請填寫影片提示詞'); return; }
-    if (!draft.image) { toast('請先選擇一張首幀圖片'); return; }
-    const parameters = videoParameters();
-    saveVideoDraft();
-    const target = $(`video-results-${mode}`);
-    const submitted = document.createElement('p'); submitted.className = 'user-message message'; submitted.textContent = prompt; target.appendChild(submitted);
-    const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.textContent = '正在提交影片任務…'; target.appendChild(progress);
-    state.resultTarget = target; state.currentProgress = progress; setBusy(true);
-    try { await invoke('generate_images', { prompt, images: [draft.image], workflow: mode, parameters, preciseMode: false }); }
-    catch (error) { progress.className = 'message error-card'; progress.textContent = `影片任務無法啟動：${error}`; setBusy(false); }
-  };
+  $('video-form').onsubmit = event => { event.preventDefault(); submitPrompt(); };
 }
 
 function artworkMarkup(path) {
@@ -142,6 +138,7 @@ function setupConversationScroll() {
   $('latest-message').onclick = () => scrollFeed(true);
   const observer = new ResizeObserver(() => scrollFeed());
   observer.observe(feed);
+  observer.observe(videoFeed);
   observer.observe(conversation);
 }
 
@@ -463,24 +460,18 @@ function openMobileConnection() {
   }, 10000);
 }
 
-function appendUserMessage(text, images, workflow) {
+function appendUserMessage(text, images) {
   const node = document.createElement('article'); node.className = 'message user-message';
+  const prompt = document.createElement('div'); prompt.className = 'reference-prompt'; prompt.textContent = text; node.appendChild(prompt);
   if (images.length) {
-    if (workflow === 'reference') {
-      const prompt = document.createElement('div'); prompt.className = 'reference-prompt'; prompt.textContent = text; node.appendChild(prompt);
-    }
     const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
     images.forEach(file => { const im = document.createElement('img'); im.src = convertFileSrc(file); im.style.cssText = 'width:62px;height:62px;object-fit:cover;border-radius:13px'; row.appendChild(im); }); node.appendChild(row);
-  } else {
-    const label = document.createElement('div'); label.textContent = text; node.appendChild(label);
   }
-  feed.appendChild(node);
+  currentFeed().appendChild(node);
 }
 
 function setBusy(value) {
   state.generating = value; $('send').disabled = value; $('upload-images').disabled = value;
-  $('video-send').disabled = value; $('video-upload').disabled = value;
-  $('video-send').textContent = value ? '影片任務處理中…' : '▷ 生成有聲影片';
   $('workflow-mode').disabled = value;
   $('workflow-trigger').disabled = value;
   $('workflow-menu').classList.remove('is-open');
@@ -492,18 +483,24 @@ function setBusy(value) {
 }
 
 async function submitPrompt() {
-  for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
+  const video = state.studioMode === 'h3_image';
+  for (const input of $(video ? 'video-form' : 'generation-parameters').querySelectorAll('input, select')) if (!input.reportValidity()) return;
   if (state.generating) return;
   const finalPrompt = promptInput.value;
   if (!finalPrompt.trim()) { toast('先寫下想法吧 ♡'); promptInput.focus(); return; }
   const images = [...state.images];
-  const parameters = currentParameters();
-  if (state.workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
+  const workflow = video ? 'h3_image' : state.workflow;
+  const parameters = video ? videoParameters() : currentParameters();
+  if (video && images.length !== 1) { toast('請先選擇一張首幀圖片'); return; }
+  if (workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
   $('welcome').classList.add('hidden');
-  appendUserMessage(finalPrompt, images, state.workflow);
-  const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.innerHTML = '<span class="spinner"></span><span>正在準備模型…</span>'; feed.appendChild(progress);
-  state.resultTarget = feed; state.currentProgress = progress; promptInput.value = ''; resizePrompt(); state.images = []; renderImageTray(); setBusy(true); scrollFeed(true);
-  try { await invoke('generate_images', { prompt: finalPrompt, images, workflow: state.workflow, parameters, preciseMode: state.preciseMode }); }
+  const target = currentFeed();
+  appendUserMessage(finalPrompt, images);
+  const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.innerHTML = '<span class="spinner"></span><span>正在準備模型…</span>'; target.appendChild(progress);
+  state.resultTarget = target; state.currentProgress = progress; promptInput.value = ''; resizePrompt();
+  if (!video) state.images = [];
+  renderImageTray(); setBusy(true); scrollFeed(true);
+  try { await invoke('generate_images', { prompt: finalPrompt, images, workflow, parameters, preciseMode: video ? false : state.preciseMode }); }
   catch (e) { progress.className = 'message error-card'; progress.textContent = `工作無法啟動：${e}`; setBusy(false); toast('生成啟動失敗'); }
 }
 
@@ -513,21 +510,24 @@ function renderImageTray() {
   tray.classList.toggle('hidden', !state.images.length);
   state.images.forEach((path, index) => {
     const wrap = document.createElement('div'); wrap.className = 'thumb-wrap';
-    wrap.innerHTML = `<img src="${convertFileSrc(path)}" alt="待處理圖片"><button title="移除圖片">×</button>`;
+    wrap.innerHTML = `<img src="${escapeHtml(convertFileSrc(path))}" alt="待處理圖片"><button title="移除圖片">×</button>`;
     wrap.querySelector('button').onclick = () => { state.images.splice(index, 1); renderImageTray(); };
     tray.appendChild(wrap);
   });
   if (!state.images.length) { $('batch-label').textContent = ''; return; }
-  $('batch-label').textContent = state.workflow === 'reference'
+  $('batch-label').textContent = state.studioMode === 'h3_image' ? '影片首幀 · 會依影片尺寸置中裁切' : state.workflow === 'reference'
     ? `${state.images.length} 張參考圖${state.images.length >= 2 ? ' · 會融合參考' : ''}`
     : `${state.images.length} 張圖片${state.images.length > 1 ? ' · 會依序修改' : ''}`;
 }
 
 async function chooseImages() {
   try {
-    const picked = await open({ multiple: true, directory: false, title: '選擇要修改的圖片', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
+    const mode = state.studioMode, video = mode === 'h3_image';
+    const picked = await open({ multiple: !video, directory: false, title: video ? '選擇影片首幀' : '選擇要修改的圖片', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
     if (!picked) return;
+    if (mode !== state.studioMode) return;
     const paths = Array.isArray(picked) ? picked : [picked];
+    if (video) { state.images = paths.slice(0, 1); renderImageTray(); return; }
     for (const file of paths) {
       if (state.images.length >= MAX_REFERENCE_IMAGES) {
         toast(`一次最多 ${MAX_REFERENCE_IMAGES} 張圖片`);
@@ -566,7 +566,7 @@ listen('generation-progress', event => {
       state.currentProgress.innerHTML = `<span class="spinner"></span><span>已完成 ${data.index}/${data.total} 個輸出…</span>`;
     }
   }
-  scrollFeed();
+  if (target === currentFeed()) scrollFeed();
 });
 
 async function init() {
