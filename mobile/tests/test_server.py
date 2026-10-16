@@ -83,15 +83,14 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertEqual(self.client.get(result.json()['url']).status_code, 200)
 
-    def test_chroma_validation_and_authentication(self):
-        payload = dict(prompt='blue teacup', workflow='chroma', images=[], request_id='c' * 32)
+    def test_workflow_validation_and_authentication(self):
+        payload = dict(prompt='blue teacup', workflow='quick', images=[], request_id='c' * 32)
         self.assertEqual(self.client.post('/api/jobs', json=payload, headers=ORIGIN).status_code, 401)
         headers = self.login()
-        self.assertEqual(self.client.post('/api/jobs', json={**payload, 'images': ['a' * 32]}, headers=headers).status_code, 422)
         self.assertEqual(self.client.post('/api/jobs', json={**payload, 'workflow': 'unknown'}, headers=headers).status_code, 422)
         response = self.client.post('/api/jobs', json=payload, headers=headers)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['workflow'], 'chroma')
+        self.assertEqual(response.json()['workflow'], 'quick')
 
     def test_shared_settings_conflict_and_security(self):
         self.assertEqual(self.client.get('/api/settings').status_code, 401)

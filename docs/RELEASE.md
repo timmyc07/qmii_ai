@@ -1,17 +1,13 @@
 # 發行流程
 
-1. 執行 `tools\setup-workflow.ps1`、`tools\verify-models.ps1` 與必要 smoke tests。
-2. 執行 `tools\build.ps1`，確認 `dist\千迷AI.exe` 與帶版本檔案存在。
-3. 對版本檔執行 `Get-FileHash -Algorithm SHA256`，將結果保存為 `dist\SHA256SUMS.txt`。
-4. 提交並推送原始碼，建立 `v0.2.6` tag。
-5. 在 GitHub Release 上傳 `千迷AI-0.2.6.exe` 與 `SHA256SUMS.txt`。
+1. 執行 Python、桌面與手機 UI 測試，以及 `cargo check --manifest-path src-tauri\Cargo.toml`。
+2. 執行 `tools\build.ps1`。
+3. 確認 `dist\千迷AI.exe`、`dist\千迷AI-0.4.1.exe` 與 `dist\SHA256SUMS.txt` 存在。
+4. 提交並推送原始碼；需要公開發行時再建立 tag 與 GitHub Release。
 
-`dist` 不提交 Git。這個 portable EXE 目前只支援文件記錄的本機環境；若日後改為通用安裝版，應使用 Tauri NSIS/MSI bundle 並移除硬編碼的本機 ComfyUI 路徑。
+`dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 `D:\AI\Qwen-Image-2.1-Turbo`。
 
-## 0.2.6
+## 0.4.1
 
-- 桌面頂部新增手機連線面板，支援開啟、重新連線、安全停止、網址及私人碼複製。
-- 核對程序身分與 HTTP readiness，失效狀態不顯示過期連線資訊。
-- 跨程序互斥啟停，過期程序紀錄可恢復；沿用 GPU 安全停止。
-
-- 修正 Windows PowerShell 的中文建置腳本及 JSON 讀取編碼。
+- 移除 ComfyUI、Chroma、FLUX、Wan、Qwen Pose 工作流與全部 LoRA 整合。
+- 只保留 Qwen Image 2.1 Turbo 的快速生成、逐張修改與多圖參考。

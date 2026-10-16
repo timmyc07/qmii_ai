@@ -131,16 +131,6 @@ async fn save_settings(settings: Settings) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-async fn creation_library() -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        serde_json::from_str(&bridge("library", serde_json::Value::Null, None)?)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
 async fn studio_jobs() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
         serde_json::from_str(&bridge("jobs", serde_json::Value::Null, None)?)
@@ -201,8 +191,6 @@ async fn generate_images(
     prompt: String,
     images: Vec<String>,
     workflow: String,
-    lora: String,
-    lora_strength: f64,
     parameters: serde_json::Value,
 ) -> Result<(), String> {
     if prompt.trim().is_empty() || prompt.len() > 32000 || images.len() > 4 {
@@ -212,7 +200,7 @@ async fn generate_images(
         bridge(
             "generate",
             serde_json::json!({"prompt": prompt, "images": images, "workflow": workflow,
-                "lora": lora, "lora_strength": lora_strength, "parameters": parameters}),
+                "parameters": parameters}),
             Some(app),
         )
         .map(|_| ())
@@ -240,7 +228,6 @@ fn main() {
             mobile_connection::stop_mobile,
             generate_images,
             studio_jobs,
-            creation_library,
             window_minimize,
             window_toggle_maximize,
             window_close,

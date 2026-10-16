@@ -69,7 +69,7 @@ Cloudflare D1 授權資料庫
 以下功能必須在 Rust 層執行授權檢查：
 
 - `generate_images`
-- 啟動 ComfyUI
+- 啟動本機模型服務
 - 快速生成
 - Qwen 2.1 T2I
 - Qwen 2.1 Edit
@@ -164,7 +164,7 @@ Cloudflare D1 授權資料庫
 ### 防繞過測試
 
 - 未啟用時直接呼叫 `generate_images` 必須失敗。
-- 未啟用時不得啟動 ComfyUI。
+- 未啟用時不得啟動本機模型服務。
 - 修改前端 HTML 或 JavaScript 後仍無法生成。
 - 將本機授權檔複製到另一台電腦時必須驗證失敗。
 - 日誌與網路封包不得包含完整卡密、租約或原始裝置識別碼。

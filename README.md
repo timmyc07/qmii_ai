@@ -1,43 +1,32 @@
 # 千迷AI（qmii_ai）
 
-Wan 2.2 影片、雙模型範本／LoRA 與生成參數面板，見 [Wan 與參數說明](docs/WAN.md)。
+千迷AI是 Windows 本機圖片生成與修改工具，只使用 Qwen Image 2.1 Turbo。
 
-千迷AI是 Windows 本機圖片生成與圖片修改桌面產品。
+## 功能
 
-## 目前功能
+- 快速生成：文字生圖，或將最多四張圖片逐張修改。
+- 多圖參考：使用 2～4 張圖片融合生成一張新圖。
+- 創作設定：可調整 Turbo 步數、CFG 與種子；選用值保存在主機設定，不放入 `.env`。
+- 跨裝置工作室：桌面與手機網頁共用佇列、提示詞設定及作品庫。
 
-- 快速生成：沿用 Qwen Image 2.1 Turbo 本機推理。
-- Qwen 2.1 工作流：整合上游 Route ① T2I 與 Route ② Edit。
-- 右側創作設定：工作流選擇、六個 Qwen LoRA 與強度設定；依模式和參考圖篩選。
-- Chroma1-HD 文字生圖，以及 HaDeS V3 人臉修復放大、Chroma Full V1 姿態參考與五階段放大；範本需完成模型及節點安裝，缺少項目會在右側顯示。
-- 支援多張圖片依序修改，或以 2～4 張參考圖搭配提示詞融合生成新圖。
-- 跨裝置工作室／PWA：桌面與網頁共用生成佇列、提示詞設定及作品庫；Mac、手機與平板透過私人 HTTPS 入口連線。
-- 0.3.0 升級規格、驗收狀態與回復方式見 [跨裝置工作室](docs/STUDIO.md)。
+專案不再包含 ComfyUI、其他生成模型或 LoRA 的整合、安裝與驗證程式。
 
-> VNCCS Route ④（136 個精確 3D 姿勢）需要額外的 VNCCS 節點、LoRA 與 CDP 瀏覽器控制器，目前不包含在產品介面中。
-
-## 專案位置
+## 本機路徑
 
 - 原始碼：`D:\codes\qmii_ai`
-- 編譯成品：`D:\codes\qmii_ai\dist`
+- Turbo 執行環境與模型：`D:\AI\Qwen-Image-2.1-Turbo`
 - 生成圖片：`D:\codes\qmii_ai\output`
-- ComfyUI 共用模型：`D:\AI\ComfyUI-Models`（維持原位置）
-- Turbo 模型：`D:\AI\Qwen-Image-2.1-Turbo`（維持原位置）
+- 編譯成品：`D:\codes\qmii_ai\dist`
 
-## 本機準備與建置
+## 建置
 
-1. 執行 `powershell -ExecutionPolicy Bypass -File tools\setup-workflow.ps1` 準備工作流。
-2. 執行 `powershell -ExecutionPolicy Bypass -File tools\verify-models.ps1` 驗證模型。
-3. 執行 `powershell -ExecutionPolicy Bypass -File tools\build.ps1` 建置產品。
+```powershell
+.runtime\mobile-venv\Scripts\python.exe -m unittest discover -s mobile\tests -v
+node tools\test-mobile-ui.cjs
+node tools\test-studio-ui.cjs
+node tools\test_conversation_ui.cjs
+cargo check --manifest-path src-tauri\Cargo.toml
+powershell -ExecutionPolicy Bypass -File tools\build.ps1
+```
 
-建置腳本會將 portable EXE 複製到 `dist\千迷AI.exe`。`dist`、模型、日誌、生成圖片與本機工作流 runtime 均由 `.gitignore` 排除。
-
-更多資訊請見 [安裝與維運說明](docs/INSTALL.md)、[模型清單](docs/MODELS.md)、[工作流說明](docs/WORKFLOWS.md) 與 [卡密系統計畫](docs/LICENSING_PLAN.md)。
-
-## 手機使用
-
-桌面右上角點「手機連線」→「開啟手機連線」，即可查看並複製手機 HTTPS 網址與私人連線碼；不需手動執行指令。可在同一面板安全停止或重新連線。完整操作與停止方式見 [手機網頁說明](docs/MOBILE.md)。
-
-## 第三方來源
-
-Qwen 2.1 工作流參考 [Arekejoker/qwen21-nsfw-pose-skill](https://github.com/Arekejoker/qwen21-nsfw-pose-skill)。該上游目前沒有附 LICENSE，因此本 repo 不再散布其程式碼；安裝腳本只在本機取得固定版本，`.runtime` 不會提交。
+手機連線與維運方式見 [手機網頁說明](docs/MOBILE.md)，本機需求見 [安裝說明](docs/INSTALL.md)。

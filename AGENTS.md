@@ -30,7 +30,7 @@ node tools\test-mobile-ui.cjs
 powershell -ExecutionPolicy Bypass -File tools\test-mobile-session.ps1
 ```
 
-`build.ps1` creates `dist\千迷AI.exe`, a versioned executable, and `SHA256SUMS.txt`. Do not run GPU smoke tests unless the local model and ComfyUI dependencies are installed.
+`build.ps1` creates `dist\千迷AI.exe`, a versioned executable, and `SHA256SUMS.txt`. Do not run GPU smoke tests unless the local Qwen Image Turbo runtime and models are installed.
 
 Every completed code or UI change must be packaged as a new version before handoff. Run `tools\build.ps1` after the change, verify that the build succeeds and the updated executable exists in `dist\`, and report the generated versioned artifact. Source-only changes are not considered complete.
 

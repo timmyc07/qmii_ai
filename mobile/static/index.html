@@ -40,7 +40,7 @@
       </details>
       <h2>我的魔法按鈕</h2><div id="presets" class="presets"></div>
       <button id="new-preset" type="button" class="quiet">＋ 新增按鈕</button>
-      <details id="parameter-panel"><summary>生成參數</summary><p class="note">留白使用配方。膨脹／羽化適用於 Chroma 人臉修復範本。</p><div id="generation-parameters" class="parameter-grid"></div><button id="reset-parameters" class="quiet" type="button">還原配方</button></details><h2>固定提示詞</h2><label for="fixed">每次自動加入的提示詞</label>
+      <details id="parameter-panel"><summary>生成參數</summary><p class="note">留白使用 Qwen Image Turbo 配方。</p><div id="generation-parameters" class="parameter-grid"></div><button id="reset-parameters" class="quiet" type="button">還原配方</button></details><h2>固定提示詞</h2><label for="fixed">每次自動加入的提示詞</label>
       <textarea id="fixed" rows="4" maxlength="4000" placeholder="例如：保留人物五官、自然光線…"></textarea>
       <div class="setting-actions"><button id="save-settings" type="button" class="primary">儲存共用設定</button><button id="reload-settings" type="button" class="quiet">重新載入</button></div>
       <p id="settings-status" class="note" role="status">所有已配對設備共用</p>
@@ -57,10 +57,9 @@
       <div class="composer-tools">
         <label class="upload">＋ 圖片<input id="files" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple></label>
         <label class="sr-only" for="workflow">工作流</label>
-        <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option><option value="pose">qwen21-nsfw-pose-skill</option><option value="chroma">Chroma1-HD</option><option value="flux">FLUX.1-dev</option><option value="wan">Wan 2.2 5B 影片</option><option value="wan_template">Wan 2.2 雙模型範本</option></select>
+        <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option></select>
         <button id="send" class="primary" type="submit">送出 ↑</button>
       </div>
-      <div class="lora-controls"><label for="lora-choice">LoRA<select id="lora-choice"><option value="">不使用 LoRA</option></select></label><label for="lora-strength">強度 <output id="lora-strength-value">1.00</output><input id="lora-strength" type="range" min="0" max="2" step="0.05" value="1" disabled></label></div><p id="lora-help" class="note"></p>
       <p class="note">由你的電腦生成 · 完整 Prompt 與來源保留於共用任務</p>
     </form>
   </main>

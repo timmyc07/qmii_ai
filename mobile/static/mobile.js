@@ -2,28 +2,7 @@
 const $ = id => document.getElementById(id);
 let csrf = '', selected = [], timer, installPrompt, submitting = false;
 const cards = new Map();
-let creationLoras = [];
-let creationDefaults = {};
-let creationTemplates = [];
-function renderLoras() {
-  for (const template of creationTemplates.filter(item => item.id.startsWith('wan'))) {
-    const option = $('workflow').querySelector(`option[value="${template.id}"]`);
-    if (option) option.disabled = !template.available;
-  }
-  const current = $('lora-choice').value;
-  $('lora-choice').replaceChildren(new Option('不使用 LoRA', ''));
-  for (const item of creationLoras.filter(item => item.workflow === $('workflow').value)) {
-    const ready = item.available && item.modes.includes(selected.length ? 'edit' : 't2i');
-    const option = new Option(item.name + (ready ? '' : ' · 目前無法使用'), item.id);
-    option.disabled = !ready; $('lora-choice').append(option);
-    if (item.id === current && ready) option.selected = true;
-  }
-  $('lora-strength').disabled = !$('lora-choice').value;
-  $('lora-help').textContent = creationLoras.find(item => item.id === $('lora-choice').value)?.description || ($('workflow').value === 'wan' ? '文字或 1 張起始圖片生成影片；不套用 14B LoRA。' : $('workflow').value === 'wan_template' ? '需要 1 張起始圖片，LoRA 僅套用高噪聲階段；輸出原生 FPS，不含補幀。' : '');
-}
-$('workflow').onchange = () => { renderLoras(); renderParameters(); };
-$('lora-choice').onchange = renderLoras;
-$('lora-strength').oninput = () => { $('lora-strength-value').textContent = Number($('lora-strength').value).toFixed(2); };
+$('workflow').onchange = renderParameters;
 let settings = { presets: [], fixedPrompt: '', revision: '' }, dirty = false, editingId = null, libraryOffset = 0;
 
 function browserPlatform() {
@@ -49,21 +28,16 @@ function jobOrigin() {
 }
 function jobTime(value) { return value ? new Date(value * 1000).toLocaleString('zh-TW', { hour12: false }) : '未記錄'; }
 
-function parameterKey() { return $('workflow').value + ($('workflow').value === 'pose' && selected.length ? '_edit' : ''); }
+function parameterKey() { return $('workflow').value; }
 function currentParameters() { return Object.fromEntries(Object.entries(settings.generation?.[parameterKey()] || {}).filter(([, value]) => value !== null)); }
 function renderParameters() {
-  const workflow = $('workflow').value, video = workflow.startsWith('wan');
-  const fields = [['steps', '步數 Steps', 4, video ? 40 : 60, 1], ['cfg', workflow === 'flux' ? '引導強度 Guidance' : '提示詞引導 CFG', 1, video ? 10 : 15, .1], ['seed', '種子（留白隨機）', 0, 9007199254740991, 1]];
-  if (workflow === 'pose' && selected.length) fields.push(['denoise', '重繪幅度 Denoise', .05, 1, .01]);
-  if (video || ['chroma', 'flux'].includes(workflow) || workflow === 'pose' && !selected.length) fields.push(['width', '寬度', 256, video ? 832 : 1728, 32], ['height', '高度', 256, video ? 832 : 1728, 32]);
-  if (video) fields.push(['frames', '幀數（4n+1）', 5, 121, 4], ['fps', '每秒幀數 FPS', 8, 32, 1]);
-  if (video || ['pose', 'chroma'].includes(workflow)) fields.push(['negative', '負面提示詞']);
+  const fields = [['steps', '步數 Steps', 4, 60, 1], ['cfg', '提示詞引導 CFG', 1, 15, .1], ['seed', '種子（留白隨機）', 0, 9007199254740991, 1]];
   $('generation-parameters').replaceChildren();
   for (const [key, title, min, max, step] of fields) {
     const label = document.createElement('label'); label.textContent = title;
     const input = document.createElement('input'); input.dataset.parameter = key; input.type = key === 'negative' ? 'text' : 'number';
     if (min !== undefined) { input.min = min; input.max = max; input.step = step; } else input.maxLength = 4000;
-    input.placeholder = creationDefaults[parameterKey()]?.[key] ?? (key === 'seed' ? '隨機' : '沿用配方'); input.value = currentParameters()[key] ?? '';
+    input.placeholder = key === 'seed' ? '隨機' : key === 'steps' ? '8' : '1'; input.value = currentParameters()[key] ?? '';
     input.oninput = () => {
       if (!input.checkValidity()) return;
       settings.generation ||= {}; const values = currentParameters();
@@ -116,15 +90,13 @@ async function loadLibrary(reset = false) {
     const value = await api(`/api/library?offset=${libraryOffset}`);
     for (const artwork of value.items) {
       const figure = document.createElement('figure'); figure.className = 'result';
-      const video = artwork.media_type === 'video';
-      const image = document.createElement(video ? 'video' : 'img'); image.src = artwork.url;
-      if (video) { image.controls = true; image.preload = 'metadata'; } else { image.alt = '作品'; image.loading = 'lazy'; }
+      const image = document.createElement('img'); image.src = artwork.url; image.alt = '作品'; image.loading = 'lazy';
       const preview = document.createElement('button'); preview.type = 'button'; preview.className = 'artwork-preview';
       preview.setAttribute('aria-label', '預覽作品'); preview.append(image);
       preview.onclick = () => { $('preview-image').src = artwork.url; $('preview-download').href = artwork.url;
         $('preview-download').download = `千迷AI-${artwork.id.slice(0, 12)}`; $('preview').showModal(); };
       const link = document.createElement('a'); link.href = artwork.url; link.download = `千迷AI-${artwork.id.slice(0, 12)}`; link.textContent = '↓ 下載作品';
-      figure.append(video ? image : preview, link); $('artworks').append(figure);
+      figure.append(preview, link); $('artworks').append(figure);
     }
     libraryOffset = value.next; $('more-artworks').classList.toggle('hidden', value.next === null);
   } catch (error) { toast(error.message); }
@@ -153,7 +125,7 @@ const jsonPost = (path, value) => api(path, { method: 'POST', headers: { 'Conten
 function showLogin() {
   csrf = ''; clearTimeout(timer); cards.clear();
   document.querySelectorAll('.job').forEach(node => node.remove());
-  selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; creationLoras = []; renderTray();
+  selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
   $('studio').classList.add('hidden'); $('logout').classList.add('hidden'); $('login-view').classList.remove('hidden');
   $('fixed').value = ''; $('prompt').value = ''; $('presets').replaceChildren(); $('artworks').replaceChildren();
   $('preset-editor').close(); $('preview').close(); $('preview-image').removeAttribute('src');
@@ -164,8 +136,7 @@ async function studio(session) {
   csrf = session.csrf;
   $('login-view').classList.add('hidden'); $('studio').classList.remove('hidden'); $('logout').classList.remove('hidden');
   $('code').value = ''; applySettings(session);
-  try { const library = await api('/api/creation-library'); creationLoras = library.loras; creationDefaults = library.defaults || {}; creationTemplates = library.templates || []; renderLoras(); renderParameters(); }
-  catch (error) { $('lora-help').textContent = `LoRA 清單讀取失敗：${error.message}`; }
+  renderParameters();
   await refresh();
 }
 
@@ -197,10 +168,8 @@ function renderJob(job) {
   job.results.forEach((url, index) => {
     if (card.querySelector(`[data-result="${index}"]`)) return;
     const figure = document.createElement('figure'); figure.className = 'result'; figure.dataset.result = index;
-    const video = job.media_type === 'video';
-    const image = document.createElement(video ? 'video' : 'img'); image.src = url;
-    if (video) { image.controls = true; image.preload = 'metadata'; } else { image.alt = '千迷AI生成圖片'; image.loading = 'lazy'; }
-    const link = document.createElement('a'); link.href = url; link.download = `千迷AI-${job.id.slice(0, 8)}-${index + 1}.${video ? 'mp4' : 'png'}`; link.textContent = video ? '↓ 儲存影片' : '↓ 儲存圖片';
+    const image = document.createElement('img'); image.src = url; image.alt = '千迷AI生成圖片'; image.loading = 'lazy';
+    const link = document.createElement('a'); link.href = url; link.download = `千迷AI-${job.id.slice(0, 8)}-${index + 1}.png`; link.textContent = '↓ 儲存圖片';
     figure.append(image, link); card.append(figure);
   });
 }
@@ -223,7 +192,7 @@ async function refresh() {
 }
 
 function renderTray() {
-  renderLoras(); renderParameters();
+  renderParameters();
   $('tray').replaceChildren();
   selected.forEach((value, index) => {
     const wrap = document.createElement('div'); wrap.className = 'thumb';
@@ -256,20 +225,16 @@ $('composer').onsubmit = async event => {
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
   const prompt = [$('fixed').value.trim(), $('prompt').value.trim()].filter(Boolean).join('\n\n');
   if (!prompt || prompt.length > 8000) { toast('請輸入提示詞，合計最多 8000 字。'); return; }
-  if ($('workflow').value === 'wan' && selected.length > 1) { toast('Wan 2.2 最多接受 1 張起始圖片。'); return; }
-  if ($('workflow').value === 'wan_template' && selected.length !== 1) { toast('雙模型影片範本需要 1 張起始圖片。'); return; }
   if ($('workflow').value === 'reference' && selected.length < 2) { toast('多圖參考至少需要 2 張參考圖片。'); return; }
-  if ($('workflow').value === 'flux' && selected.length) { toast('FLUX.1-dev 僅支援文字生圖，請先移除參考圖片。'); return; }
-  if ($('workflow').value === 'chroma' && selected.length) { toast('Chroma1-HD 僅支援文字生圖，請先移除參考圖片。'); return; }
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
   try {
     for (const value of selected) {
       if (!value.id) value.id = (await api('/api/uploads', { method: 'POST', headers: { 'Content-Type': value.file.type || 'application/octet-stream' }, body: value.file })).id;
     }
     // Retain the request ID after an uncertain response so retry cannot duplicate a GPU task.
-    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), $('lora-choice').value, Number($('lora-strength').value), currentParameters()]);
+    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), currentParameters()]);
     if ($('composer').pendingSignature !== signature) { $('composer').pendingSignature = signature; $('composer').pendingId = crypto.randomUUID().replaceAll('-', ''); }
-    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), request_id: $('composer').pendingId, lora: $('lora-choice').value, lora_strength: Number($('lora-strength').value), origin: jobOrigin(), parameters: currentParameters() });
+    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), request_id: $('composer').pendingId, origin: jobOrigin(), parameters: currentParameters() });
     renderJob(job); $('welcome').classList.add('hidden'); $('prompt').value = '';
     $('composer').pendingSignature = ''; selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
     toast('已交給你的電腦處理。'); await refresh();

@@ -28,9 +28,9 @@ class Settings(BaseModel):
     @model_validator(mode='after')
     def validate_generation(self):
         for key, value in self.generation.items():
-            if key not in ('quick', 'reference', 'pose', 'pose_edit', 'chroma', 'flux', 'chroma_hades', 'chroma_full', 'wan', 'wan_template'):
+            if key not in ('quick', 'reference'):
                 raise ValueError('不支援的參數模式。')
-            validate_parameters('pose' if key == 'pose_edit' else key, key == 'pose_edit', value.model_dump(exclude_none=True))
+            validate_parameters(value.model_dump(exclude_none=True))
         return self
 
 

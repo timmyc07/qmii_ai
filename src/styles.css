@@ -383,4 +383,3 @@ button:disabled { cursor: wait; opacity: .6; }
 .parameter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
 .parameter-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 0; }
 .parameter-grid input { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #dccfec; border-radius: 10px; background: #fff; color: #493d58; }
-video { display: block; max-width: 100%; max-height: 70vh; border-radius: 14px; }

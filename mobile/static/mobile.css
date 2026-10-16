@@ -10,10 +10,8 @@ header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-betwee
 @media(min-width:64rem){.studio{width:min(100%,88rem);display:grid;grid-template-columns:17rem minmax(0,1fr);column-gap:2rem;align-items:start}.toolbar{grid-column:1/-1}.settings-panel{grid-column:1;grid-row:2/4;position:sticky;top:5rem;max-height:calc(100dvh - 6rem);overflow:auto}.feed,.library{grid-column:2;grid-row:2;min-height:55dvh}.composer{grid-column:2;grid-row:3}.feed{padding:1.5rem 0 3rem}}
 @media(max-width:63.99rem){.settings-panel{max-height:34dvh;overflow:auto}.settings-panel h2{display:inline-block;margin-right:1rem}.presets{display:flex}.preset-row{margin:0}.settings-panel textarea{min-height:3rem;height:4rem}.settings-panel .note{display:inline-block}}
 
-.lora-controls{display:flex;gap:.8rem;align-items:center;margin-top:.6rem}.lora-controls label{flex:1;min-width:0;font-size:.75rem}.lora-controls select{display:block;width:100%;padding:.5rem;font-size:.75rem}.lora-controls input{margin:0}
 .job-metadata{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.75rem;color:#80678f;line-height:1.7;padding:.7rem;background:#f3edf7;border-radius:.8rem}.identity-settings label{margin-top:.7rem}.identity-settings .note{line-height:1.6}
 
 .parameter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
 .parameter-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 0; }
 .parameter-grid input { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #dccfec; border-radius: 10px; background: #fff; color: #493d58; }
-video { display: block; max-width: 100%; max-height: 70vh; border-radius: 14px; }

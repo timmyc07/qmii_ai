@@ -23,10 +23,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .settings import Settings, SettingsStore
-from .library import catalog, resolve_lora
-from . import flux, wan
 from .parameters import Parameters, validate_parameters
-from .chroma_templates import TemplateDependencyError, validate_input
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -54,10 +51,8 @@ class JobOrigin(BaseModel):
 class JobInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     prompt: str = Field(min_length=1, max_length=8000)
-    workflow: str = Field(pattern='^(quick|reference|pose|chroma|flux|chroma_hades|chroma_full|wan|wan_template)$')
+    workflow: str = Field(pattern='^(quick|reference)$')
     parameters: Parameters | None = None
-    lora: str = Field(default='', max_length=64)
-    lora_strength: float = Field(default=1.0, ge=0, le=2, allow_inf_nan=False)
     origin: JobOrigin = Field(default_factory=JobOrigin)
     images: list[str] = Field(default_factory=list, max_length=4)
     request_id: str = Field(pattern='^[a-f0-9]{32}$')
@@ -110,8 +105,6 @@ class Store:
             columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
             for name, definition in [('origin', "TEXT NOT NULL DEFAULT '{}'"),
                                      ('started', 'REAL'), ('finished', 'REAL'),
-                                     ('lora', "TEXT NOT NULL DEFAULT ''"),
-                                     ('lora_strength', 'REAL NOT NULL DEFAULT 1'),
                                      ('parameters', "TEXT NOT NULL DEFAULT '{}'")]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
@@ -159,10 +152,7 @@ class Store:
         sources = json.loads(row['sources'])
         results = json.loads(row['results'])
         return dict(id=row['id'], status=row['status'], message=row['message'], created=row['created'],
-                    prompt=row['prompt'], workflow=row['workflow'],
-                    lora=row['lora'], lora_strength=row['lora_strength'],
-                    parameters=json.loads(row['parameters']),
-                    media_type='video' if row['workflow'] in wan.WORKFLOWS else 'image',
+                    prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
                     updated=row['updated'], started=row['started'], finished=row['finished'],
                     origin=json.loads(row['origin']),
                     sources=[f'/api/uploads/{value}' for value in sources],
@@ -190,7 +180,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     def artworks():
         found = []
         for path in library.rglob('*'):
-            if path.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.mp4') or not path.is_file():
+            if path.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.bmp') or not path.is_file():
                 continue
             if not path.resolve().is_relative_to(library) or path.is_symlink():
                 continue
@@ -228,8 +218,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             store.update(job_id, 'running', '正在準備電腦…')
             LOG.info('Job started id=%s workflow=%s', job_id, row['workflow'])
             try:
-                payload = dict(prompt=row['prompt'], workflow=row['workflow'],
-                               lora=row['lora'], lora_strength=row['lora_strength'], parameters=json.loads(row['parameters']))
+                payload = dict(prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']))
                 sources = [store.state / 'uploads' / f'{value}.png' for value in json.loads(row['sources'])]
                 output = store.output / job_id
                 output.mkdir(exist_ok=True)
@@ -240,13 +229,12 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                     results = generate(payload, sources, output, progress)
                 else:
                     results = runner(payload, sources, output, progress)
-                store.update(job_id, 'completed', '影片完成，可以下載了。' if row['workflow'] in wan.WORKFLOWS else '圖片完成，可以下載了。', results)
+                store.update(job_id, 'completed', '圖片完成，可以下載了。', results)
                 LOG.info('Job completed id=%s count=%s', job_id, len(results))
             except Exception as exc:
                 # Upstream errors can contain prompts; log only the exception class.
                 LOG.error('Job failed id=%s exception=%s', job_id, type(exc).__name__)
-                message = str(exc) if isinstance(exc, TemplateDependencyError) else '生成失敗，請確認電腦的模型服務與顯示卡狀態。'
-                store.update(job_id, 'failed', message)
+                store.update(job_id, 'failed', '生成失敗，請確認電腦的模型服務與顯示卡狀態。')
             try:
                 store.cleanup()
             except OSError:
@@ -330,8 +318,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         if offset < 0:
             raise HTTPException(422, '作品頁碼無效。')
         files = artworks()
-        return dict(items=[dict(id=key, url=f'/api/library/{key}', created=created,
-                               media_type='video' if path.suffix.lower() == '.mp4' else 'image')
+        return dict(items=[dict(id=key, url=f'/api/library/{key}', created=created)
                            for key, path, created in files[offset:offset + 40]],
                     next=offset + 40 if len(files) > offset + 40 else None)
 
@@ -391,11 +378,6 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             raise HTTPException(404, '找不到圖片。')
         return FileResponse(path, media_type='image/png')
 
-    @app.get('/api/creation-library')
-    def library_options(request: Request):
-        store.session(request)
-        return catalog()
-
     @app.post('/api/jobs')
     async def submit(request: Request):
         store.session(request, mutate=True)
@@ -404,23 +386,12 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         value = await parse_json(request, JobInput)
         if not value.prompt.strip():
             raise HTTPException(422, '請輸入提示詞。')
-        if value.workflow == 'flux' and value.images:
-            raise HTTPException(422, 'FLUX.1-dev 僅支援文字生圖，請先移除參考圖片。')
-        if value.workflow == 'chroma' and value.images:
-            raise HTTPException(422, 'Chroma1-HD 僅支援文字生圖，請先移除參考圖片。')
         if value.workflow == 'reference' and len(value.images) < 2:
             raise HTTPException(422, '多圖參考生成至少需要 2 張參考圖片。')
         try:
-            if value.workflow == 'flux':
-                flux.validate_models(Path(r'D:\AI\ComfyUI-Models'))
-            validate_input(value.workflow, len(value.images))
-            wan.validate_input(value.workflow, len(value.images))
-            mode_key = value.workflow + ('_edit' if value.workflow == 'pose' and value.images else '')
-            defaults = settings.read()['generation'].get(mode_key, {})
-            parameters = validate_parameters(value.workflow, bool(value.images),
-                                             value.parameters.model_dump(exclude_none=True) if value.parameters is not None
+            defaults = settings.read()['generation'].get(value.workflow, {})
+            parameters = validate_parameters(value.parameters.model_dump(exclude_none=True) if value.parameters is not None
                                              else {k: v for k, v in defaults.items() if v is not None})
-            resolve_lora(value.lora, value.workflow, bool(value.images), value.lora_strength)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         job_id, now = secrets.token_hex(16), time.time()
@@ -436,10 +407,10 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 identifier(upload_id)
                 if not db.execute('SELECT id FROM uploads WHERE id=?', (upload_id,)).fetchone():
                     raise HTTPException(422, '找不到上傳圖片，請重新選擇。')
-            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,lora,lora_strength,parameters) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                        (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt.strip(),
                         value.workflow, json.dumps(value.images), '[]', now, now, json.dumps(value.origin.model_dump()),
-                        value.lora, value.lora_strength, json.dumps(parameters)))
+                        json.dumps(parameters)))
         wake.set()
         LOG.info('Job queued id=%s', job_id)
         return store.public_job(store.job(job_id))
@@ -464,8 +435,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         if not 0 <= index < len(results):
             raise HTTPException(404, '圖片尚未完成。')
         path = store.output / job_id / results[index]
-        video = path.suffix.lower() == '.mp4'
-        return FileResponse(path, media_type='video/mp4' if video else 'image/png', filename=f'千迷AI-{job_id[:8]}-{index + 1}{path.suffix}',
+        return FileResponse(path, media_type='image/png', filename=f'千迷AI-{job_id[:8]}-{index + 1}{path.suffix}',
                             content_disposition_type='inline')
 
     @app.get('/')

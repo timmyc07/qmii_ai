@@ -72,14 +72,14 @@ with patch('mobile.settings.SettingsStore.read', side_effect=RuntimeError('工�
                     value['fixedPrompt'] = '跨設備'
                     desktop.request('/api/settings', value, method='PUT')
                     self.assertEqual(browser.request('/api/settings')['fixedPrompt'], '跨設備')
-                    job = desktop.request('/api/jobs', dict(prompt='共同工作流', workflow='pose',
+                    job = desktop.request('/api/jobs', dict(prompt='共同工作流', workflow='quick',
                                                            images=[], request_id='e' * 32))
                     self.assertEqual(browser.request('/api/jobs')['jobs'][0]['id'], job['id'])
                     for _ in range(100):
                         if browser.request('/api/jobs/' + job['id'])['status'] == 'completed':
                             break
                         time.sleep(.01)
-                    self.assertEqual(received[0]['workflow'], 'pose')
+                    self.assertEqual(received[0]['workflow'], 'quick')
                     desktop.request('/api/logout', method='POST')
                     browser.request('/api/logout', method='POST')
                 finally:

@@ -42,7 +42,7 @@ powershell -ExecutionPolicy Bypass -File tools\start-mobile.ps1 -Public
 
 1. 開啟 HTTPS 網址並輸入私人連線碼。
 2. 輸入提示詞，或選擇最多四張圖片進行修改或參考。
-3. 選擇「快速生成」、「多圖參考」或「Qwen 2.1」。多圖參考需要至少兩張圖片，會融合成一張新圖。
+3. 選擇「快速生成」或「多圖參考」。多圖參考需要至少兩張圖片，會融合成一張新圖。
 4. 送出後可查看排隊及處理狀態；完成時下載圖片。
 
 所有任務均顯示完整送出提示詞（包含固定提示詞），並記錄提交、開始及結束時間、平台、設備名稱、設備識別碼與使用者。網頁的「使用者與設備」可設定本設備名稱，身分保存在此瀏覽器；名稱為自行填寫，並非帳號驗證。固定提示詞及常用按鈕由主機保存。網頁支援新增、編輯、刪除按鈕，與桌面同步；固定提示詞按「儲存共用設定」保存。其他設備同時修改會提示版本衝突，請重新載入。作品庫可預覽及下載桌面與網頁作品。
@@ -55,22 +55,20 @@ Android支援的瀏覽器可使用「加入主畫面」；iPhone可從Safari分�
 powershell -ExecutionPolicy Bypass -File tools\stop-mobile.ps1
 ```
 
-停止時先拒絕新任務，等待目前生成完成，再退出手機服務與專用HTTPS連線。尚未開始的排隊任務會保留，待下次啟動繼續。ComfyUI屬共享服務，不會被強制關閉。
-
-若ComfyUI任務逾時，手機服務會只取消自己提交的任務並確認已停止，期間保留GPU鎖。無法確認停止時會繼續等待，以免兩個模型同時占用顯示卡；可在電腦查看ComfyUI狀態及日誌。
+停止時先拒絕新任務，等待目前生成完成，再退出手機服務與專用HTTPS連線。尚未開始的排隊任務會保留，待下次啟動繼續。
 
 ## 私人資料與限制
 
-- 服務只監聽 `127.0.0.1:8787`，HTTPS Tunnel只代理這個入口，ComfyUI的8188不公開。
+- 服務只監聽 `127.0.0.1:8787`，HTTPS Tunnel只代理這個入口。
 - 使用高熵私人連線碼、七天登入session、HttpOnly Cookie、Origin及CSRF檢查。
 - 卡密計畫尚未實作；私人連線碼不具售卡、期限或裝置席次管理功能。
 - 每張圖片最多12MiB、2000萬像素，最多四張；伺服器實際解碼並轉存PNG。
 - 每日最多200張上傳、上傳暫存約2GiB上限、最多8個未完成任務；GPU一次只執行一項千迷AI工作。
-- 桌面版0.3.0與網頁經同一 API 佇列處理，worker 持有 `.runtime\gpu-task.lock`。使用舊桌面版或直接操作ComfyUI不受此鎖管理，請避免同時生成。
+- 桌面版與網頁經同一 API 佇列處理，worker 持有 `.runtime\gpu-task.lock`。
 - 完整提示詞與來源資訊保留在主機任務資料庫，所有已配對設備可查看；生成圖片不嵌入這些資訊。舊任務已清除的提示詞及未記錄的來源無法補回。
 - 完成圖片與任務永久保存，不自動清理；過期 session 與未被待處理任務使用的上傳暫存七天後清理。作品庫涵蓋既有桌面圖片。
 - 目前生成不能從手機取消；關閉手機頁面不會中斷電腦任務。
-- 服務崩潰時，執行中的任務重啟後標記失敗；未執行任務保留。請先確認ComfyUI與Turbo沒有殘留工作再重啟。
+- 服務崩潰時，執行中的任務重啟後標記失敗；未執行任務保留。請先確認 Turbo 沒有殘留工作再重啟。
 
 ## 本機路徑
 
@@ -79,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File tools\stop-mobile.ps1
 - 登入碼、SQLite、日誌、程序紀錄：`.runtime\mobile\`
 - 圖片上傳：`.runtime\mobile\uploads\`
 - 完成圖片：`output\mobile\`
-- 測試圖片：`output\mobile-quick-smoke.png`、`output\mobile-pose-smoke.png`
+- 測試圖片：`output\mobile-quick-smoke.png`、`output\mobile-reference-smoke.png`
 
 runtime、密碼、圖片、日誌與編譯產物均由Git排除。
 
@@ -96,11 +94,11 @@ cargo test --manifest-path src-tauri\Cargo.toml
 
 # 啟動服務後測試真實GPU生圖及登入保護下載
 .runtime\mobile-venv\Scripts\python.exe tools\mobile-smoke.py --workflow quick
-.runtime\mobile-venv\Scripts\python.exe tools\mobile-smoke.py --workflow pose --image output\mobile-quick-smoke.png
+.runtime\mobile-venv\Scripts\python.exe tools\mobile-smoke.py --workflow reference --image output\one.png --image output\two.png
 ```
 
 ## 連線方式與未來正式部署
 
 本次使用[Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)，每次重開會變更網址，適合私人試用且沒有可用性保證。固定網址需設定自己的Cloudflare帳號、網域與named tunnel。服務採短輪詢取得進度，符合Quick Tunnel不支援SSE的限制。
 
-生成流程重用[ComfyUI官方API模式](https://github.com/Comfy-Org/ComfyUI/blob/master/script_examples/websockets_api_example.py)與已安裝的Qwen工作流，沒有將未授權上游程式碼提交至本repo。
+生成流程只呼叫本機 `D:\AI\Qwen-Image-2.1-Turbo`，模型與執行檔不提交至本 repo。

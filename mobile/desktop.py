@@ -13,7 +13,6 @@ import urllib.error
 import urllib.request
 
 from .settings import ROOT, SettingsStore
-from .library import catalog
 
 URL = 'http://127.0.0.1:8787'
 
@@ -76,9 +75,6 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
     action = sys.argv[1]
-    if action == 'library':
-        emit(catalog())
-        return
     if action == 'load_settings':
         emit(SettingsStore().read())
         return
@@ -92,8 +88,7 @@ def main():
         if action == 'jobs':
             value = client.request('/api/jobs')
             for job in value['jobs']:
-                extension = 'mp4' if job['media_type'] == 'video' else 'png'
-                job['results'] = [str(ROOT / 'output' / 'mobile' / job['id'] / f'{i}.{extension}')
+                job['results'] = [str(ROOT / 'output' / 'mobile' / job['id'] / f'{i}.png')
                                   for i in range(len(job['results']))]
             emit(value)
             return
@@ -104,16 +99,14 @@ def main():
                 raise RuntimeError('單張圖片不可超過 12 MB。')
             images.append(client.request('/api/uploads', raw=path.read_bytes())['id'])
         job = client.request('/api/jobs', dict(prompt=payload['prompt'], workflow=payload['workflow'],
-                                             lora=payload.get('lora', ''), lora_strength=payload.get('lora_strength', 1.0),
                                              parameters=payload.get('parameters', {}),
                                              images=images, request_id=secrets.token_hex(16), origin=desktop_origin()))
         seen = 0
-        total = 1 if payload['workflow'] in ('reference', 'chroma_hades', 'chroma_full', 'wan', 'wan_template') else max(1, len(images))
+        total = 1 if payload['workflow'] == 'reference' else max(1, len(images))
         while True:
             for index in range(seen, len(job['results'])):
-                extension = 'mp4' if job['media_type'] == 'video' else 'png'
-                emit(dict(index=index + 1, total=total, message='影片完成' if extension == 'mp4' else '圖片完成', done=False, error=None,
-                          image=str(ROOT / 'output' / 'mobile' / job['id'] / f'{index}.{extension}')))
+                emit(dict(index=index + 1, total=total, message='圖片完成', done=False, error=None,
+                          image=str(ROOT / 'output' / 'mobile' / job['id'] / f'{index}.png')))
             seen = len(job['results'])
             done = job['status'] in ('completed', 'failed')
             emit(dict(index=seen, total=total, message=job['message'], done=done, image=None,

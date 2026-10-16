@@ -10,8 +10,8 @@ from PIL import Image
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--url', default='http://127.0.0.1:8787')
-parser.add_argument('--workflow', choices=['quick', 'pose'], default='quick')
-parser.add_argument('--image', type=Path)
+parser.add_argument('--workflow', choices=['quick', 'reference'], default='quick')
+parser.add_argument('--image', type=Path, action='append')
 args = parser.parse_args()
 url = args.url.rstrip('/')
 with httpx.Client(base_url=url, timeout=30, headers={'Origin': url}) as client:
@@ -21,8 +21,8 @@ with httpx.Client(base_url=url, timeout=30, headers={'Origin': url}) as client:
     login.raise_for_status()
     client.headers['X-Qianmi-CSRF'] = login.json()['csrf']
     sources = []
-    if args.image:
-        upload = client.post('/api/uploads', content=args.image.read_bytes(), headers={'Content-Type': 'image/png'})
+    for image in args.image or []:
+        upload = client.post('/api/uploads', content=image.read_bytes(), headers={'Content-Type': 'image/png'})
         upload.raise_for_status()
         sources.append(upload.json()['id'])
     prompt = 'Keep the same subject, use soft warm studio lighting.' if sources else 'A small ceramic teacup on a wooden table, soft morning light, still life photograph.'
@@ -43,8 +43,7 @@ with httpx.Client(base_url=url, timeout=30, headers={'Origin': url}) as client:
             break
         time.sleep(2)
     assert job['status'] == 'completed', job['message']
-    if sources:
-        assert job['prompt'] == ''
+    assert job['prompt'] == prompt
     result = client.get(job['results'][0])
     result.raise_for_status()
     path = root / 'output' / f'mobile-{args.workflow}-smoke.png'
