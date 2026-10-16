@@ -146,11 +146,11 @@ function renderWorkflow() {
   $('workflow-help').textContent = state.workflow === 'reference'
     ? '上傳 2～4 張圖片，由 Qwen Image Turbo 融合參考生成一張作品。'
     : state.workflow === 'superduper'
-      ? 'ComfyUI 雙階段工作流，套用 pussyV2 與工作流指定的局部細修 LoRA；目前只支援文字生成。'
+      ? 'ComfyUI 雙階段工作流；上傳圖片時依提示詞逐張編輯，未上傳時文字生圖。圖片會依設定寬高置中裁切。'
       : state.workflow === 'nsfw_adv'
-        ? '作者建議配置群組：NSFW Adv LoKr 1.0、Lightning 0.45、res_2s、bong_tangent、10 Steps、CFG 1。'
+        ? 'LoKr + Lightning 群組；上傳圖片時逐張重繪，未上傳時文字生圖。圖片會依設定寬高置中裁切。'
       : 'Qwen Image Turbo 文字生圖；有圖片時逐張修改。';
-  $('upload-images').disabled = state.generating || ['superduper', 'nsfw_adv'].includes(state.workflow);
+  $('upload-images').disabled = state.generating;
 }
 
 function renderPresets() {
@@ -187,6 +187,7 @@ function parameterFields() {
   ];
   if (superduper) fields.push({ key: 'lora_strength', label: 'LoRA 強度', min: 0, max: 2, step: .05, defaultValue: .8, help: '控制 pussyV2 LoRA 對模型與文字編碼的影響。調高：LoRA 特徵與觸發詞效果更明顯，過高可能扭曲或產生雜訊；調低：更接近基礎模型，設為 0 等同關閉 LoRA。' });
   if (nsfwAdv) fields.push(
+    { key: 'denoise', label: '重繪強度 Denoise', min: .05, max: 1, step: .05, defaultValue: .6, help: '只在上傳圖片時生效。調低：保留更多原圖構圖與細節；調高：更依提示詞重新創作，人物與構圖也更容易改變。1 接近完全重畫；未上傳圖片時固定使用 1。' },
     { key: 'lokr_strength', label: 'NSFW Adv LoKr 強度', min: 0, max: 2, step: .05, defaultValue: 1, help: '作者建議 1.0，用於加強人體細節。調高會放大 LoKr 特徵，也更容易產生形體瑕疵；調低會減弱效果，0 等同關閉。' },
     { key: 'lightning_strength', label: 'Lightning 強度', min: 0, max: 2, step: .05, defaultValue: .45, help: '作者建議 0.4～0.5，用來配合低步數加速。調高會加重蒸餾效果，過高可能失去細節；調低會接近原模型，但 10 步可能不足，0 等同關閉。' });
   return fields;
@@ -424,7 +425,6 @@ async function submitPrompt() {
   const images = [...state.images];
   const parameters = currentParameters();
   if (state.workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
-  if (['superduper', 'nsfw_adv'].includes(state.workflow) && images.length) { toast('這個 ComfyUI 工作流目前只支援文字生成，請先移除圖片'); return; }
   $('welcome').classList.add('hidden');
   appendUserMessage(finalPrompt, images, state.workflow);
   const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.innerHTML = '<span class="spinner"></span><span>正在準備模型…</span>'; feed.appendChild(progress);

@@ -43,6 +43,7 @@ function renderParameters() {
   ];
   if (superduper) fields.push(['lora_strength', 'LoRA 強度', 0, 2, .05, '.8', '調高會加強 pussyV2 特徵，過高可能扭曲或產生雜訊；調低更接近基礎模型，0 等同關閉。']);
   if (nsfwAdv) fields.push(
+    ['denoise', '重繪強度 Denoise', .05, 1, .05, '.6', '只在上傳圖片時生效。調低保留更多原圖；調高更依提示詞重畫，人物與構圖更容易改變。1 接近完全重畫；無圖片時固定為 1。圖片會依設定寬高置中裁切。'],
     ['lokr_strength', 'NSFW Adv LoKr 強度', 0, 2, .05, '1', '作者建議 1.0。調高會放大人體細節與瑕疵風險；調低會減弱效果，0 等同關閉。'],
     ['lightning_strength', 'Lightning 強度', 0, 2, .05, '.45', '作者建議 0.4～0.5。調高蒸餾效果更強但可能失去細節；調低更接近原模型。']);
   $('generation-parameters').replaceChildren();
@@ -61,7 +62,7 @@ function renderParameters() {
     const note = document.createElement('small'); note.className = 'parameter-help'; note.textContent = help;
     label.append(input, note); $('generation-parameters').append(label);
   }
-  $('files').disabled = submitting || superduper || nsfwAdv;
+  $('files').disabled = submitting;
 }
 $('reset-parameters').onclick = () => { if (settings.generation) delete settings.generation[parameterKey()]; dirty = true; renderParameters(); };
 
@@ -241,7 +242,6 @@ $('composer').onsubmit = async event => {
   const prompt = $('prompt').value.trim();
   if (!prompt || prompt.length > 8000) { toast('請輸入提示詞，合計最多 8000 字。'); return; }
   if ($('workflow').value === 'reference' && selected.length < 2) { toast('多圖參考至少需要 2 張參考圖片。'); return; }
-  if (['superduper', 'nsfw_adv'].includes($('workflow').value) && selected.length) { toast('這個 ComfyUI 工作流目前只支援文字生成，請先移除圖片。'); return; }
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
   try {
     for (const value of selected) {

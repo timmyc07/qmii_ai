@@ -3,7 +3,7 @@ import time
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-from .superduper import COMFY, URL, ensure_server, request_json
+from .superduper import COMFY, URL, ensure_server, image_input, request_json
 
 FILES = (
     'models/diffusion_models/qwen_image_fp8_e4m3fn.safetensors',
@@ -26,8 +26,8 @@ def ensure_comfy():
         raise RuntimeError('NSFW Adv 群組缺少 RES4LYF 的 res_2s 或 bong_tangent。')
 
 
-def graph(parameters, prompt, seed):
-    return {
+def graph(parameters, prompt, seed, image=None):
+    value = {
         '1': {'class_type': 'UNETLoader', 'inputs': {
             'unet_name': 'qwen_image_fp8_e4m3fn.safetensors', 'weight_dtype': 'default'}},
         '2': {'class_type': 'LoraLoaderModelOnly', 'inputs': {
@@ -53,24 +53,33 @@ def graph(parameters, prompt, seed):
         '12': {'class_type': 'SaveImage', 'inputs': {
             'images': ['11', 0], 'filename_prefix': 'qianmi_nsfw_adv'}},
     }
+    if image:
+        value['13'] = {'class_type': 'LoadImage', 'inputs': {'image': image}}
+        value['14'] = {'class_type': 'ImageScale', 'inputs': {
+            'image': ['13', 0], 'upscale_method': 'lanczos', 'width': parameters.get('width', 1024),
+            'height': parameters.get('height', 1536), 'crop': 'center'}}
+        value['8'] = {'class_type': 'VAEEncode', 'inputs': {'pixels': ['14', 0], 'vae': ['10', 0]}}
+        value['9']['inputs']['denoise'] = parameters.get('denoise', .6)
+    return value
 
 
-def run(parameters, prompt, seed, output, progress):
+def run(parameters, prompt, seed, output, progress, source=None):
     ensure_comfy()
     progress('正在載入 NSFW Adv 群組（LoKr + Lightning + RES4LYF）…')
-    prompt_id = request_json('/prompt', {'prompt': graph(parameters, prompt, seed)}, 30)['prompt_id']
-    for _ in range(7200):
-        history = request_json(f'/history/{prompt_id}', timeout=30)
-        if prompt_id in history:
-            status = history[prompt_id].get('status', {})
-            if status.get('status_str') == 'error':
-                raise RuntimeError('NSFW Adv 群組執行失敗，請查看 .runtime/superduper.log。')
-            images = history[prompt_id].get('outputs', {}).get('12', {}).get('images', [])
-            if images:
-                image = images[-1]
-                query = urlencode({key: image[key] for key in ('filename', 'subfolder', 'type')})
-                with urlopen(URL + '/view?' + query, timeout=120) as response:
-                    output.write_bytes(response.read())
-                return
-        time.sleep(1)
+    with image_input(source) as image:
+        prompt_id = request_json('/prompt', {'prompt': graph(parameters, prompt, seed, image)}, 30)['prompt_id']
+        for _ in range(7200):
+            history = request_json(f'/history/{prompt_id}', timeout=30)
+            if prompt_id in history:
+                status = history[prompt_id].get('status', {})
+                if status.get('status_str') == 'error':
+                    raise RuntimeError('NSFW Adv 群組執行失敗，請查看 .runtime/superduper.log。')
+                images = history[prompt_id].get('outputs', {}).get('12', {}).get('images', [])
+                if images:
+                    image = images[-1]
+                    query = urlencode({key: image[key] for key in ('filename', 'subfolder', 'type')})
+                    with urlopen(URL + '/view?' + query, timeout=120) as response:
+                        output.write_bytes(response.read())
+                    return
+            time.sleep(1)
     raise RuntimeError('NSFW Adv 群組工作流逾時。')

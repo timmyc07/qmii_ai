@@ -19,8 +19,6 @@ def generate(payload, sources, output_dir, progress):
         raise RuntimeError('不支援的生成模式。')
     if workflow == 'reference' and len(sources) < 2:
         raise RuntimeError('多圖參考生成至少需要 2 張參考圖片。')
-    if workflow in ('superduper', 'nsfw_adv') and sources:
-        raise RuntimeError('這個 ComfyUI 工作流目前只支援文字生成。')
     params = validate_parameters(payload.get('parameters', {}))
 
     def new_seed(index=0):
@@ -32,20 +30,20 @@ def generate(payload, sources, output_dir, progress):
         if payload.get('precise_mode'):
             from .precision import rewrite
             prompt = rewrite(prompt, bool(sources), new_seed(), progress)
-        if workflow == 'superduper':
-            from .superduper import run
-            output = output_dir / '0.png'
-            run(params, prompt, new_seed(), output, progress)
-            clean_output(output)
-            progress('SuperDuper 生成完成', ['0.png'])
-            return ['0.png']
-        if workflow == 'nsfw_adv':
-            from .nsfw_adv import run
-            output = output_dir / '0.png'
-            run(params, prompt, new_seed(), output, progress)
-            clean_output(output)
-            progress('NSFW Adv 群組生成完成', ['0.png'])
-            return ['0.png']
+        if workflow in ('superduper', 'nsfw_adv'):
+            if workflow == 'superduper':
+                from .superduper import run
+            else:
+                from .nsfw_adv import run
+            results = []
+            for index, source in enumerate(sources or [None]):
+                progress(f'正在生成第 {index + 1}/{max(1, len(sources))} 張…')
+                output = output_dir / f'{index}.png'
+                run(params, prompt, new_seed(index), output, progress, source=source)
+                clean_output(output)
+                results.append(output.name)
+                progress(f'已完成 {len(results)}/{max(1, len(sources))} 張', list(results))
+            return results
 
         if workflow == 'reference':
             progress(f'正在融合 {len(sources)} 張參考圖片…')

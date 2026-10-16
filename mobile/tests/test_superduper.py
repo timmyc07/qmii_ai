@@ -4,10 +4,24 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from mobile.superduper import compile_workflow
+from mobile.superduper import compile_workflow, image_input
+from PIL import Image
 
 
 class SuperDuperTest(unittest.TestCase):
+    def test_source_copy_is_removed_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'original.png'
+            Image.new('RGB', (16, 16)).save(source)
+            with patch('mobile.superduper.COMFY', root):
+                with self.assertRaisesRegex(RuntimeError, 'test failure'):
+                    with image_input(source) as name:
+                        self.assertTrue((root / 'input' / name).is_file())
+                        raise RuntimeError('test failure')
+            self.assertTrue(source.is_file())
+            self.assertEqual(list((root / 'input').iterdir()), [])
+
     def test_compiles_ui_workflow_and_applies_controls(self):
         nodes = [
             {'id': value, 'type': kind, 'mode': 0, 'inputs': [], 'widgets_values_named': {}}
@@ -22,6 +36,7 @@ class SuperDuperTest(unittest.TestCase):
             with patch('mobile.superduper.WORKFLOW', workflow):
                 graph = compile_workflow(dict(width=768, height=1344, steps=20, cfg=2.5,
                                               lora_strength=.65, negative='blur'), 'portrait', 42)
+                edit = compile_workflow(dict(width=512, height=768), 'blue teacup', 42, 'test/source.png')
         self.assertNotIn('55', graph)
         self.assertEqual(graph['62']['inputs']['height'], 1344)
         self.assertEqual(graph['82']['inputs']['prompt'], 'STZK, portrait')
@@ -33,6 +48,9 @@ class SuperDuperTest(unittest.TestCase):
         self.assertEqual(graph['123']['inputs']['lora_name'], 'qwen2.1_penisV01_000004956_comfy.safetensors')
         self.assertEqual(graph['121']['inputs']['model'], ['123', 0])
         self.assertEqual(graph['90']['inputs']['seed'], 42)
+        self.assertEqual(edit['82']['inputs']['images.image_1'], ['131', 0])
+        self.assertEqual(edit['88']['inputs']['latent_image'], ['82', 2])
+        self.assertNotIn('62', edit)
 
 
 if __name__ == '__main__':

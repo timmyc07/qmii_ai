@@ -44,7 +44,7 @@ class GenerationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
 
-            def comfy(parameters, prompt, seed, target, progress):
+            def comfy(parameters, prompt, seed, target, progress, source=None):
                 self.assertEqual(parameters['lora_strength'], .7)
                 self.assertEqual(prompt, 'portrait')
                 Image.new('RGB', (16, 16)).save(target)
@@ -54,14 +54,12 @@ class GenerationTest(unittest.TestCase):
                 result = generate(dict(prompt='portrait', workflow='superduper',
                                        parameters=dict(seed=12, lora_strength=.7)), [], output, Mock())
             self.assertEqual(result, ['0.png'])
-            with self.assertRaisesRegex(RuntimeError, '只支援文字'):
-                generate(dict(prompt='portrait', workflow='superduper'), [output / '0.png'], output, Mock())
 
     def test_nsfw_adv_group_and_precise_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
 
-            def comfy(parameters, prompt, seed, target, progress):
+            def comfy(parameters, prompt, seed, target, progress, source=None):
                 self.assertEqual(parameters['lokr_strength'], 1)
                 self.assertEqual(prompt, 'rewritten prompt')
                 Image.new('RGB', (16, 16)).save(target)
@@ -73,8 +71,24 @@ class GenerationTest(unittest.TestCase):
                                        parameters=dict(seed=12, lokr_strength=1)), [], output, Mock())
             self.assertEqual(result, ['0.png'])
             rewrite.assert_called_once()
-            with self.assertRaisesRegex(RuntimeError, '只支援文字'):
-                generate(dict(prompt='portrait', workflow='nsfw_adv'), [output / '0.png'], output, Mock())
+
+    def test_comfy_modes_modify_each_source_with_incrementing_seed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            sources = [output / 'a.png', output / 'b.png']
+            for workflow in ('superduper', 'nsfw_adv'):
+                calls = []
+
+                def comfy(parameters, prompt, seed, target, progress, source=None):
+                    calls.append((source, seed, prompt))
+                    Image.new('RGB', (16, 16)).save(target)
+
+                with patch('mobile.generation.gpu_lock', return_value=nullcontext()), \
+                        patch(f'mobile.{workflow}.run', side_effect=comfy):
+                    result = generate(dict(workflow=workflow, prompt='blue teacup', parameters=dict(seed=10)),
+                                      sources, output, Mock())
+                self.assertEqual(result, ['0.png', '1.png'])
+                self.assertEqual(calls, [(sources[0], 10, 'blue teacup'), (sources[1], 11, 'blue teacup')])
 
     def test_turbo_applies_image_parameters_and_cleans_prompt_files(self):
         with tempfile.TemporaryDirectory() as directory:

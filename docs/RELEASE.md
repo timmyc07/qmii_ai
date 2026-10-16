@@ -7,6 +7,11 @@
 
 `dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 Turbo 與 SuperDuper 執行環境。
 
+## 0.5.3
+
+- 所有模式可上傳圖片加提示詞；SuperDuper 與 NSFW Adv 新增逐張圖片編輯／重繪。
+- NSFW Adv 新增重繪強度，桌面與手機同步支援。
+
 ## 0.5.2
 
 - SuperDuper 安裝改用固定版本、SHA256 相同的 Hugging Face 基礎模型鏡像，不再需要 Civitai token。

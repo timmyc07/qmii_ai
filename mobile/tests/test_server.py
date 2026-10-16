@@ -93,6 +93,10 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(response.json()['workflow'], 'quick')
         upload = self.client.post('/api/uploads', content=image_bytes(), headers=headers).json()['id']
         invalid = {**payload, 'workflow': 'superduper', 'images': [upload], 'request_id': 'd' * 32}
+        self.assertEqual(self.client.post('/api/jobs', json=invalid, headers=headers).status_code, 200)
+        valid = {**invalid, 'workflow': 'nsfw_adv', 'request_id': 'e' * 32, 'parameters': {'denoise': .6}}
+        self.assertEqual(self.client.post('/api/jobs', json=valid, headers=headers).status_code, 200)
+        invalid = {**valid, 'request_id': 'f' * 32, 'parameters': {'denoise': 1.1}}
         self.assertEqual(self.client.post('/api/jobs', json=invalid, headers=headers).status_code, 422)
 
     def test_shared_settings_conflict_and_security(self):

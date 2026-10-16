@@ -14,6 +14,14 @@ class NsfwAdvTest(unittest.TestCase):
         self.assertEqual(value['9']['inputs']['steps'], 10)
         self.assertEqual(value['9']['inputs']['cfg'], 1)
 
+    def test_img2img_encodes_source_and_applies_denoise(self):
+        value = graph(dict(width=512, height=768, denoise=.4), 'blue teacup', 12, 'test/source.png')
+        self.assertEqual(value['13']['inputs']['image'], 'test/source.png')
+        self.assertEqual(value['8']['class_type'], 'VAEEncode')
+        self.assertEqual(value['8']['inputs']['pixels'], ['14', 0])
+        self.assertEqual(value['9']['inputs']['denoise'], .4)
+        self.assertEqual(graph(dict(denoise=.4), 'test', 12)['9']['inputs']['denoise'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()

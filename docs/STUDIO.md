@@ -6,8 +6,10 @@
 
 - `quick`：文字生圖；有圖片時逐張修改。
 - `reference`：需要 2～4 張參考圖片，融合生成一張圖片。
-- `superduper`：ComfyUI 雙階段文字生圖，套用 `pussyV2` 與工作流指定的局部細修 LoRA，不接受參考圖片。
-- `nsfw_adv`：獨立 ComfyUI 作者建議群組，套用 NSFW Adv LoKr、Lightning 與 RES4LYF，不接受參考圖片。
+- `superduper`：文字生圖；上傳圖片時透過 Qwen 2.1 原生圖片條件逐張編輯，套用 `pussyV2` 與局部細修 LoRA。
+- `nsfw_adv`：文字生圖；上傳圖片時透過 VAE 編碼逐張重繪，套用 NSFW Adv LoKr、Lightning 與 RES4LYF。
+
+各模式都能上傳圖片並輸入提示詞。快速生成、SuperDuper 與 NSFW Adv 最多四張、逐張輸出；多圖參考以 2～4 張圖片融合生成一張。ComfyUI 模式會依設定寬高置中裁切輸入；NSFW Adv 的重繪強度預設 0.6，調低保留更多原圖，調高增加重新創作幅度。暫存的 ComfyUI 輸入複本在任務完成或失敗後刪除，原圖不受影響。
 
 主機只接受這四個工作流 ID，並驗證提示詞、圖片、寬高（256～2048 且為 32 的倍數）、步數、CFG、種子、負面提示詞與 LoRA／LoKr 強度。所有任務一次只占用一個 GPU 鎖；輸出 PNG 會移除生成 metadata。
 

@@ -300,7 +300,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @app.get('/api/session')
     def session(request: Request):
         row = store.session(request)
-        return dict(csrf=row['csrf'], api_version=7, **settings.read())
+        return dict(csrf=row['csrf'], api_version=8, **settings.read())
 
     @app.get('/api/settings')
     def read_settings(request: Request):
@@ -392,8 +392,6 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             raise HTTPException(422, '請輸入提示詞。')
         if value.workflow == 'reference' and len(value.images) < 2:
             raise HTTPException(422, '多圖參考生成至少需要 2 張參考圖片。')
-        if value.workflow in ('superduper', 'nsfw_adv') and value.images:
-            raise HTTPException(422, '這個 ComfyUI 工作流目前只支援文字生成。')
         try:
             defaults = settings.read()['generation'].get(value.workflow, {})
             parameters = validate_parameters(value.parameters.model_dump(exclude_none=True) if value.parameters is not None

@@ -1,10 +1,12 @@
 """Run the imported Qwen Image 2.1 SuperDuper workflow through dedicated ComfyUI."""
 import json
+from contextlib import contextmanager
 import logging
 import os
 from pathlib import Path
 import socket
 import subprocess
+from tempfile import TemporaryDirectory
 import time
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -108,7 +110,22 @@ def ensure_comfy():
     ensure_server(REQUIRED_NODES)
 
 
-def compile_workflow(parameters, prompt, seed):
+@contextmanager
+def image_input(source):
+    if source is None:
+        yield None
+        return
+    from PIL import Image
+    folder = COMFY / 'input'
+    folder.mkdir(exist_ok=True)
+    with TemporaryDirectory(prefix='qianmi_', dir=folder) as directory:
+        target = Path(directory) / 'source.png'
+        with Image.open(source) as image:
+            image.convert('RGB').save(target)
+        yield target.relative_to(folder).as_posix()
+
+
+def compile_workflow(parameters, prompt, seed, image=None):
     workflow = json.loads(WORKFLOW.read_text(encoding='utf-8'))
     links = {link[0]: [str(link[1]), link[2]] for link in workflow['links']}
     graph = {}
@@ -139,26 +156,34 @@ def compile_workflow(parameters, prompt, seed):
     strength = parameters.get('lora_strength', .8)
     graph['83']['inputs'].update(strength_model=strength, strength_clip=strength)
     graph['123']['inputs']['lora_name'] = 'qwen2.1_penisV01_000004956_comfy.safetensors'
+    if image:
+        graph['130'] = {'class_type': 'LoadImage', 'inputs': {'image': image}}
+        graph['131'] = {'class_type': 'ImageScale', 'inputs': {
+            'image': ['130', 0], 'upscale_method': 'lanczos', 'width': width, 'height': height, 'crop': 'center'}}
+        graph['82']['inputs'].update({'images.image_1': ['131', 0], 'resolution': 0})
+        graph['88']['inputs']['latent_image'] = ['82', 2]
+        del graph['62']
     graph['56']['inputs']['filename_prefix'] = 'qianmi_superduper'
     return graph
 
 
-def run(parameters, prompt, seed, output, progress):
+def run(parameters, prompt, seed, output, progress, source=None):
     ensure_comfy()
     progress('正在載入 SuperDuper 工作流與局部細修 LoRA…')
-    prompt_id = request_json('/prompt', {'prompt': compile_workflow(parameters, prompt, seed)}, 30)['prompt_id']
-    for _ in range(7200):
-        history = request_json(f'/history/{prompt_id}', timeout=30)
-        if prompt_id in history:
-            status = history[prompt_id].get('status', {})
-            if status.get('status_str') == 'error':
-                raise RuntimeError('SuperDuper 工作流執行失敗，請查看 .runtime/superduper.log。')
-            images = history[prompt_id].get('outputs', {}).get('56', {}).get('images', [])
-            if images:
-                image = images[-1]
-                query = urlencode({key: image[key] for key in ('filename', 'subfolder', 'type')})
-                with urlopen(URL + '/view?' + query, timeout=120) as response:
-                    output.write_bytes(response.read())
-                return
-        time.sleep(1)
+    with image_input(source) as image:
+        prompt_id = request_json('/prompt', {'prompt': compile_workflow(parameters, prompt, seed, image)}, 30)['prompt_id']
+        for _ in range(7200):
+            history = request_json(f'/history/{prompt_id}', timeout=30)
+            if prompt_id in history:
+                status = history[prompt_id].get('status', {})
+                if status.get('status_str') == 'error':
+                    raise RuntimeError('SuperDuper 工作流執行失敗，請查看 .runtime/superduper.log。')
+                images = history[prompt_id].get('outputs', {}).get('56', {}).get('images', [])
+                if images:
+                    image = images[-1]
+                    query = urlencode({key: image[key] for key in ('filename', 'subfolder', 'type')})
+                    with urlopen(URL + '/view?' + query, timeout=120) as response:
+                        output.write_bytes(response.read())
+                    return
+            time.sleep(1)
     raise RuntimeError('SuperDuper 工作流逾時。')

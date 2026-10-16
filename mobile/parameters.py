@@ -19,6 +19,7 @@ class Parameters(BaseModel):
     lora_strength: float | None = Field(default=None, ge=0, le=2, allow_inf_nan=False)
     lokr_strength: float | None = Field(default=None, ge=0, le=2, allow_inf_nan=False)
     lightning_strength: float | None = Field(default=None, ge=0, le=2, allow_inf_nan=False)
+    denoise: float | None = Field(default=None, ge=.05, le=1, allow_inf_nan=False)
 
 
 def validate_parameters(value):

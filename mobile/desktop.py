@@ -60,7 +60,7 @@ class StudioClient:
                 raise RuntimeError('工作室服務啟動失敗，請檢查主機連線日誌。')
         code = self.code_path.read_text(encoding='utf-8').strip()
         self.csrf = self.request('/api/login', {'code': code})['csrf']
-        if self.request('/api/session').get('api_version') != 7:
+        if self.request('/api/session').get('api_version') != 8:
             self.request('/api/logout', method='POST')
             self.csrf = ''
             raise RuntimeError('工作室服務仍是舊版本，請在「手機連線」先停止，再重新開啟服務。')
@@ -103,7 +103,7 @@ def main():
                                              precise_mode=payload.get('precise_mode', False), images=images,
                                              request_id=secrets.token_hex(16), origin=desktop_origin()))
         seen = 0
-        total = 1 if payload['workflow'] in ('reference', 'superduper', 'nsfw_adv') else max(1, len(images))
+        total = 1 if payload['workflow'] == 'reference' else max(1, len(images))
         while True:
             for index in range(seen, len(job['results'])):
                 emit(dict(index=index + 1, total=total, message='圖片完成', done=False, error=None,
