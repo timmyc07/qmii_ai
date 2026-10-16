@@ -4,11 +4,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from mobile.superduper import compile_workflow, image_input
+from mobile.superduper import compile_workflow, image_input, workflow_error
 from PIL import Image
 
 
 class SuperDuperTest(unittest.TestCase):
+    def test_error_names_node_without_exposing_prompt(self):
+        status = {'messages': [('execution_error', {'node_id': '110', 'exception_message': 'private prompt'})]}
+        error = workflow_error('SuperDuper', status, {'110': {'class_type': 'FaceDetailer'}})
+        self.assertIn('FaceDetailer', str(error))
+        self.assertNotIn('private prompt', str(error))
+
     def test_source_copy_is_removed_on_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

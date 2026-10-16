@@ -20,6 +20,18 @@ WORKFLOW = RUNTIME / 'qwenImage21SuperDuper_v2.json'
 URL = 'http://127.0.0.1:8191'
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 LOG = logging.getLogger('qianmi.mobile')
+
+
+class ComfyWorkflowError(RuntimeError):
+    """A prompt-free error safe to display in the shared job queue."""
+
+
+def workflow_error(name, status, graph):
+    for kind, value in status.get('messages', []):
+        if kind == 'execution_error':
+            node = graph.get(str(value.get('node_id')), {}).get('class_type', '未知節點')
+            return ComfyWorkflowError(f'{name} 在 {node} 節點執行失敗，請查看電腦的 ComfyUI 日誌。')
+    return ComfyWorkflowError(f'{name} 工作流執行失敗，請查看電腦的 ComfyUI 日誌。')
 REQUIRED_NODES = {'APG', 'FreSca', 'FaceDetailer', 'UltralyticsDetectorProvider', 'TextEncodeQwenImage21',
                   'SplitImageWithAlpha'}
 REQUIRED_FILES = (
@@ -178,13 +190,14 @@ def run(parameters, prompt, seed, output, progress, source=None):
     ensure_comfy()
     progress('正在載入 SuperDuper 工作流與局部細修 LoRA…')
     with image_input(source) as image:
-        prompt_id = request_json('/prompt', {'prompt': compile_workflow(parameters, prompt, seed, image)}, 30)['prompt_id']
+        graph = compile_workflow(parameters, prompt, seed, image)
+        prompt_id = request_json('/prompt', {'prompt': graph}, 30)['prompt_id']
         for _ in range(7200):
             history = request_json(f'/history/{prompt_id}', timeout=30)
             if prompt_id in history:
                 status = history[prompt_id].get('status', {})
                 if status.get('status_str') == 'error':
-                    raise RuntimeError('SuperDuper 工作流執行失敗，請查看 .runtime/superduper.log。')
+                    raise workflow_error('SuperDuper', status, graph)
                 images = history[prompt_id].get('outputs', {}).get('56', {}).get('images', [])
                 if images:
                     image = images[-1]

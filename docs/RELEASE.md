@@ -7,6 +7,11 @@
 
 `dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 Turbo 與 SuperDuper 執行環境。
 
+## 0.5.5
+
+- 桌面比對背景服務程式碼指紋，安全排空並更新舊服務，避免新版程式仍使用舊工作流。
+- SuperDuper 失敗訊息顯示節點名稱，不包含提示詞或上游錯誤內文。
+
 ## 0.5.4
 
 - 修正 SuperDuper 偵測到臉部後，RGBA 圖片送入 SAM 導致三通道斷言失敗；每段細修前轉為 RGB。

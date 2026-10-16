@@ -12,9 +12,29 @@ import time
 import urllib.error
 import urllib.request
 
-from .settings import ROOT, SettingsStore
+from .settings import ROOT, SettingsStore, source_revision
 
 URL = 'http://127.0.0.1:8787'
+
+
+def service_script(name, public=False):
+    args = ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-File', str(ROOT / 'tools' / name)]
+    if public:
+        args.append('-Public')
+    result = subprocess.run(args, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            creationflags=subprocess.CREATE_NO_WINDOW)
+    if result.returncode:
+        raise RuntimeError('工作室服務更新失敗，請檢查主機連線日誌。')
+
+
+def restart_service():
+    saved = ROOT / '.runtime' / 'mobile' / 'processes.json'
+    if not saved.is_file():
+        raise RuntimeError('工作室服務未登記，請先在「手機連線」停止後重新開啟。')
+    public = bool(json.loads(saved.read_text(encoding='utf-8-sig')).get('publicUrl'))
+    service_script('stop-mobile.ps1')
+    service_script('start-mobile.ps1', public=public)
 
 
 def desktop_origin():
@@ -52,18 +72,20 @@ class StudioClient:
         except OSError:
             # The existing lifecycle script registers ownership for safe drain
             # and can subsequently be restarted with the HTTPS tunnel enabled.
-            result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy',
-                                     'Bypass', '-File', str(ROOT / 'tools' / 'start-mobile.ps1')],
-                                    cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    creationflags=subprocess.CREATE_NO_WINDOW)
-            if result.returncode:
-                raise RuntimeError('工作室服務啟動失敗，請檢查主機連線日誌。')
+            service_script('start-mobile.ps1')
         code = self.code_path.read_text(encoding='utf-8').strip()
         self.csrf = self.request('/api/login', {'code': code})['csrf']
-        if self.request('/api/session').get('api_version') != 8:
+        session = self.request('/api/session')
+        if session.get('api_version') != 8 or session.get('source_revision') != source_revision():
             self.request('/api/logout', method='POST')
             self.csrf = ''
-            raise RuntimeError('工作室服務仍是舊版本，請在「手機連線」先停止，再重新開啟服務。')
+            if self.url != URL or self.code_path != ROOT / '.runtime' / 'mobile' / 'access-code.txt':
+                raise RuntimeError('工作室服務仍是舊版本，請在「手機連線」先停止，再重新開啟服務。')
+            restart_service()
+            self.csrf = self.request('/api/login', {'code': code})['csrf']
+            session = self.request('/api/session')
+            if session.get('api_version') != 8 or session.get('source_revision') != source_revision():
+                raise RuntimeError('工作室服務版本未更新，請檢查主機連線日誌。')
 
 
 def emit(value):

@@ -11,6 +11,14 @@ from .parameters import Parameters, validate_parameters
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def source_revision():
+    digest = hashlib.sha256()
+    for path in sorted((ROOT / 'mobile').glob('*.py')):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 class Preset(BaseModel):
     model_config = ConfigDict(extra='forbid')
     id: str = Field(min_length=1, max_length=128)

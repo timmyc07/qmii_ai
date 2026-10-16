@@ -16,6 +16,22 @@ from mobile.server import create_app
 
 
 class DesktopBridgeTest(unittest.TestCase):
+    def test_same_api_with_old_code_restarts_local_service(self):
+        client = StudioClient()
+        with patch('mobile.desktop.urllib.request.urlopen'), \
+                patch('mobile.desktop.Path.read_text', return_value='test-code'), \
+                patch('mobile.desktop.source_revision', return_value='current'), \
+                patch('mobile.desktop.restart_service') as restart, \
+                patch.object(client, 'request') as request:
+            request.side_effect = [{'csrf': 'old'}, {'api_version': 8, 'source_revision': 'old'},
+                                   {'ok': True}, {'csrf': 'new'},
+                                   {'api_version': 8, 'source_revision': 'current'}]
+            client.connect()
+            restart.assert_called_once()
+            self.assertEqual(client.csrf, 'new')
+            self.assertEqual([call.args[0] for call in request.call_args_list],
+                             ['/api/login', '/api/session', '/api/logout', '/api/login', '/api/session'])
+
     def test_old_server_is_rejected_before_submission(self):
         with tempfile.TemporaryDirectory() as directory:
             code = Path(directory) / 'access-code.txt'

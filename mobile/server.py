@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .settings import Settings, SettingsStore
+from .settings import Settings, SettingsStore, source_revision
 from .parameters import Parameters, validate_parameters
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -176,6 +176,7 @@ class Store:
 
 
 def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, settings_path=None, library_dir=None):
+    revision = source_revision()
     store = Store(state_dir or ROOT / '.runtime' / 'mobile', output_dir or ROOT / 'output' / 'mobile')
     settings = SettingsStore(settings_path)
     library = Path(library_dir or (ROOT / 'output' if output_dir is None else output_dir)).resolve()
@@ -238,7 +239,9 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             except Exception as exc:
                 # Upstream errors can contain prompts; log only the exception class.
                 LOG.error('Job failed id=%s exception=%s', job_id, type(exc).__name__)
-                store.update(job_id, 'failed', '生成失敗，請確認電腦的模型服務與顯示卡狀態。')
+                from .superduper import ComfyWorkflowError
+                message = str(exc) if isinstance(exc, ComfyWorkflowError) else '生成失敗，請確認電腦的模型服務與顯示卡狀態。'
+                store.update(job_id, 'failed', message)
             try:
                 store.cleanup()
             except OSError:
@@ -300,7 +303,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @app.get('/api/session')
     def session(request: Request):
         row = store.session(request)
-        return dict(csrf=row['csrf'], api_version=8, **settings.read())
+        return dict(csrf=row['csrf'], api_version=8, source_revision=revision, **settings.read())
 
     @app.get('/api/settings')
     def read_settings(request: Request):
