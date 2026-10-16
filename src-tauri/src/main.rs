@@ -50,6 +50,7 @@ struct Progress {
     message: String,
     done: bool,
     image: Option<String>,
+    video: Option<String>,
     error: Option<String>,
 }
 

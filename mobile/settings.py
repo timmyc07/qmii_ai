@@ -36,9 +36,9 @@ class Settings(BaseModel):
     @model_validator(mode='after')
     def validate_generation(self):
         for key, value in self.generation.items():
-            if key not in ('quick', 'reference', 'superduper', 'nsfw_adv'):
+            if key not in ('quick', 'reference', 'superduper', 'nsfw_adv', 'h3_image'):
                 raise ValueError('不支援的參數模式。')
-            validate_parameters(value.model_dump(exclude_none=True))
+            validate_parameters(value.model_dump(exclude_none=True), key)
         return self
 
 

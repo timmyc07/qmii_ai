@@ -26,10 +26,12 @@ const { chromium } = require('playwright');
       window.__TAURI__ = {
         core: {
           convertFileSrc: value => value,
-          invoke: async name => {
+          invoke: async (name, args) => {
             const test = window.testMobile;
             test.calls.push(name);
             if (name === 'load_settings') return { presets: [], preciseMode: false };
+            if (name === 'save_settings') return { ...args.settings, revision: 'saved' };
+            if (name === 'generate_images') { test.generation = args; return; }
             if (name === 'studio_jobs') return { jobs: [{ id: 'fixture', workflow: 'quick', prompt: '其他設備提交', message: '已排隊', created: 1792000000, started: 1792000001, finished: 1792000010, origin: { platform: 'Windows 桌面', device: '<測試電腦>', user: '小迷', device_id: 'fixture-device' }, results: [] }] };
             if (name === 'mobile_status') {
               if (test.fail) throw new Error('Test status failure');
@@ -44,7 +46,7 @@ const { chromium } = require('playwright');
               return test.info = { ...stopped };
             }
           }
-        }, dialog: { open: async () => null }, event: { listen: async () => {} }
+        }, dialog: { open: async () => window.testMobile.openPath || null }, event: { listen: async (name, handler) => { if (name === 'generation-progress') window.testMobile.progress = handler; } }
       };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
@@ -102,8 +104,48 @@ const { chromium } = require('playwright');
     await page.evaluate(() => { window.testMobile.fail = false; });
     await page.click('#mobile-refresh');
     await page.waitForFunction(() => !document.querySelector('#mobile-start').disabled);
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.fill('#prompt', '圖片草稿');
+    await page.click('[data-studio-mode="h3_image"]');
+    assert.equal(await page.locator('#conversation').isVisible(), false);
+    assert.equal(await page.locator('#video-page').isVisible(), true);
+    assert.equal(await page.locator('[data-studio-mode]').count(), 2);
+    await page.fill('#video-duration', '6');
+    await page.click('#video-save-settings');
+    await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('已儲存'));
+    await page.evaluate(() => { window.testMobile.openPath = '/fixture.png'; });
+    await page.click('#video-upload');
+    await page.waitForSelector('#video-image-preview img');
+    await page.click('#video-example');
+    assert.match(await page.locator('#video-prompt').inputValue(), /00:06\.000/);
+    await page.fill('#video-seed', '42');
+    await page.click('[data-studio-mode="image"]');
+    assert.equal(await page.locator('#prompt').inputValue(), '圖片草稿');
+    await page.click('[data-studio-mode="h3_image"]');
+    assert.equal(await page.locator('#video-duration').inputValue(), '6');
+    assert.equal(await page.locator('#video-seed').inputValue(), '42');
+    await page.click('#video-send');
+    const submitted = await page.evaluate(() => window.testMobile.generation);
+    assert.equal(submitted.workflow, 'h3_image');
+    assert.deepEqual(submitted.images, ['/fixture.png']);
+    assert.equal(submitted.parameters.duration, 6);
+    assert.equal(submitted.parameters.seed, 42);
+    assert.equal(submitted.preciseMode, false);
+    await page.click('[data-studio-mode="image"]');
+    await page.evaluate(() => window.testMobile.progress({ payload: { video: '/fixture.mp4', index: 1, total: 1, message: '影片完成', done: true } }));
+    assert.equal(await page.locator('#video-results-h3_image video[controls]').count(), 1);
+    assert.equal(await page.locator('#feed video').count(), 0);
+    await page.click('[data-studio-mode="h3_image"]');
+    for (const width of [1280, 390, 360]) {
+      await page.setViewportSize({ width, height: 820 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.querySelector('#video-page').scrollWidth <= document.querySelector('#video-page').clientWidth), true, `Video page overflows at ${width}px`);
+      await page.locator('#video-page').evaluate(el => { el.scrollTop = 0; });
+      await page.waitForTimeout(350);
+      if (width !== 360) await page.screenshot({ path: path.join(__dirname, `../.runtime/h3-video-${width}.png`), fullPage: true });
+    }
     assert.deepEqual(errors, []);
-    console.log('Mobile UI passed: pending/reopen, masked code, responsive 1280/390/360, drain, stale state, error recovery.');
+    console.log('UI passed: mobile lifecycle, image/video pages, preserved drafts, I2V submission, MP4 result routing, responsive 1280/390/360.');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

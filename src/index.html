@@ -19,7 +19,7 @@
   <div class="app-shell" id="app-shell">
     <button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="收起魔法按鈕"></button>
     <aside class="sidebar" id="sidebar">
-      <div class="brand"><div class="brand-mark">✦</div><div><strong>千迷AI</strong><span>本機圖片工作室</span></div></div>
+      <div class="brand"><div class="brand-mark">✦</div><div><strong>千迷AI</strong><span>本機創作工作室</span></div></div>
       <div class="side-title"><span>我的魔法按鈕</span><div class="side-title-actions"><button id="manage-presets" class="icon-button" title="管理提示詞按鈕">⚙</button><button id="sidebar-collapse" class="icon-button sidebar-collapse" title="收起左側欄" aria-label="收起左側欄">‹</button></div></div>
       <div id="preset-list" class="preset-list"></div>
       <button id="new-preset-shortcut" class="dashed-add"><span>＋</span> 新增我的按鈕</button>
@@ -28,6 +28,30 @@
     <main class="main-pane">
       <header class="topbar"><div class="top-brand"><button id="sidebar-toggle" class="icon-button sidebar-toggle" aria-label="展開魔法按鈕" aria-controls="sidebar" aria-expanded="false">☷</button><span class="tiny-flower">✿</span><b>千迷AI</b><span class="local-pill"><i></i> 本機運行</span></div><div class="top-actions"><button id="mobile-connection" class="soft-button" title="手機連線與私人連線碼">▯ <span>手機連線</span><b id="mobile-state">未開啟</b></button><button id="precise-mode" class="soft-button" aria-pressed="false"><span>✧</span> 精準模式 <b id="precise-state">關閉</b></button><button id="creation-toggle" class="soft-button" aria-controls="creation-panel" aria-expanded="false">✧ <span>創作設定</span></button><button id="shared-jobs" class="soft-button">共用任務</button><button id="open-output" class="soft-button icon-label">▧ <span>作品集</span></button></div></header>
 
+      <nav class="studio-modes" aria-label="切換創作頁面">
+        <button type="button" data-studio-mode="image" aria-pressed="true">✿ 圖片創作</button>
+        <button type="button" data-studio-mode="h3_image" aria-pressed="false">▧ 圖片生影片</button>
+      </nav>
+      <section id="video-page" class="video-page hidden" aria-labelledby="video-title">
+        <div class="video-heading"><p class="eyebrow">MINIMAX H3 · 有聲影片</p><h1 id="video-title">圖片生影片</h1><p>選擇一張圖片，讓 H3 延續畫面生成動作與聲音。</p></div>
+        <div class="video-layout">
+          <form id="video-form" class="video-form">
+            <div><h2>① 選擇首幀圖片</h2><button id="video-upload" type="button" class="upload-button">＋ 選擇一張圖片</button><div id="video-image-preview"></div><p class="creation-help">會依影片尺寸置中裁切，請確認主體位於畫面中央。</p></div>
+            <label class="form-field"><span>② 影片提示詞：畫面、動作與聲音</span><textarea id="video-prompt" maxlength="8000" rows="10" required placeholder="依時間順序描述動作、鏡頭與聲音。可先載入下方範例，再替換內容。"></textarea></label>
+            <button id="video-example" type="button" class="secondary-button">載入橘貓範例</button>
+            <details class="creation-help"><summary>提示詞格式說明</summary><p>保留首幀參照 Header，以及 integrated_multimodal_description、overall_soundscape、non_diegetic_music 三個標籤；段落間空一行。時間碼須在設定片長內，首幀描述應與圖片一致。無配樂填 N/A。</p></details>
+            <h2>③ 影片設定</h2>
+            <div class="parameter-grid">
+              <label>片長（秒）<input id="video-duration" type="number" min="1" max="15" step="0.1" value="12" required></label>
+              <label>影片尺寸<select id="video-size"><option value="512x896">直式 512 × 896</option><option value="896x512">橫式 896 × 512</option><option value="768x1344">直式 768 × 1344</option><option value="1344x768">橫式 1344 × 768</option></select></label>
+              <label>影片種子<input id="video-seed" type="number" min="0" max="9007199254740991" step="1" placeholder="留白每次隨機"></label>
+            </div>
+            <p class="creation-help">24 fps、有聲 MP4、固定 4 步 Turbo 配方。片長會向上對齊有效幀數；768p 較慢且需要更多記憶體。</p>
+            <div class="video-actions"><button id="video-save-settings" type="button" class="secondary-button">儲存此模式設定</button><button id="video-send" type="submit" class="primary-button">▷ 生成有聲影片</button></div>
+          </form>
+          <div class="video-results"><h2>生成結果</h2><p class="creation-help">影片會儲存在本機作品集，也能從共用任務查看。</p><div id="video-results-h3_image" aria-live="polite"></div></div>
+        </div>
+      </section>
       <section id="conversation" class="conversation" tabindex="0" aria-label="創作對話">
         <div id="welcome" class="welcome">
           <div class="welcome-illustration"><div class="halo"></div><div class="magic-star">✦</div><span class="float-heart h1">♡</span><span class="float-heart h2">✧</span><span class="float-heart h3">✿</span></div>

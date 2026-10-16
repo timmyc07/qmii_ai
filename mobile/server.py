@@ -51,7 +51,7 @@ class JobOrigin(BaseModel):
 class JobInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     prompt: str = Field(min_length=1, max_length=8000)
-    workflow: str = Field(pattern='^(quick|reference|superduper|nsfw_adv)$')
+    workflow: str = Field(pattern='^(quick|reference|superduper|nsfw_adv|h3_image)$')
     parameters: Parameters | None = None
     precise_mode: bool = False
     origin: JobOrigin = Field(default_factory=JobOrigin)
@@ -158,7 +158,7 @@ class Store:
                     precise_mode=bool(row['precise_mode']),
                     updated=row['updated'], started=row['started'], finished=row['finished'],
                     origin=json.loads(row['origin']),
-                    sources=[f'/api/uploads/{value}' for value in sources],
+                    sources=[f'/api/uploads/{value}' for value in sources], result_files=results,
                     results=[f'/api/jobs/{row["id"]}/images/{i}' for i in range(len(results))])
 
     def cleanup(self):
@@ -184,7 +184,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     def artworks():
         found = []
         for path in library.rglob('*'):
-            if path.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.bmp') or not path.is_file():
+            if path.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.mp4') or not path.is_file():
                 continue
             if not path.resolve().is_relative_to(library) or path.is_symlink():
                 continue
@@ -234,7 +234,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                     results = generate(payload, sources, output, progress)
                 else:
                     results = runner(payload, sources, output, progress)
-                store.update(job_id, 'completed', '圖片完成，可以下載了。', results)
+                store.update(job_id, 'completed', '影片完成，可以播放與下載了。' if row['workflow'].startswith('h3_') else '圖片完成，可以下載了。', results)
                 LOG.info('Job completed id=%s count=%s', job_id, len(results))
             except Exception as exc:
                 # Upstream errors can contain prompts; log only the exception class.
@@ -325,7 +325,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         if offset < 0:
             raise HTTPException(422, '作品頁碼無效。')
         files = artworks()
-        return dict(items=[dict(id=key, url=f'/api/library/{key}', created=created)
+        return dict(items=[dict(id=key, url=f'/api/library/{key}', created=created,
+                               media_type='video' if path.suffix.lower() == '.mp4' else 'image')
                            for key, path, created in files[offset:offset + 40]],
                     next=offset + 40 if len(files) > offset + 40 else None)
 
@@ -398,7 +399,9 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         try:
             defaults = settings.read()['generation'].get(value.workflow, {})
             parameters = validate_parameters(value.parameters.model_dump(exclude_none=True) if value.parameters is not None
-                                             else {k: v for k, v in defaults.items() if v is not None})
+                                             else {k: v for k, v in defaults.items() if v is not None}, value.workflow)
+            if value.workflow == 'h3_image' and len(value.images) != 1:
+                raise ValueError('圖片生影片需要一張首幀圖片。')
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         job_id, now = secrets.token_hex(16), time.time()
@@ -442,7 +445,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         if not 0 <= index < len(results):
             raise HTTPException(404, '圖片尚未完成。')
         path = store.output / job_id / results[index]
-        return FileResponse(path, media_type='image/png', filename=f'千迷AI-{job_id[:8]}-{index + 1}{path.suffix}',
+        return FileResponse(path, media_type='video/mp4' if path.suffix == '.mp4' else 'image/png', filename=f'千迷AI-{job_id[:8]}-{index + 1}{path.suffix}',
                             content_disposition_type='inline')
 
     @app.get('/')

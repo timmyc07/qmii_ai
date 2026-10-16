@@ -84,7 +84,7 @@ def ensure_server(required_nodes=()):
         nodes = request_json('/object_info')
         absent = set(required_nodes) - nodes.keys()
         if absent:
-            raise RuntimeError('ComfyUI 缺少節點：' + '、'.join(sorted(absent)))
+            raise ComfyWorkflowError('ComfyUI 缺少節點：' + '、'.join(sorted(absent)))
         return
     except OSError:
         pass
@@ -109,7 +109,7 @@ def ensure_server(required_nodes=()):
             nodes = request_json('/object_info')
             absent = set(required_nodes) - nodes.keys()
             if absent:
-                raise RuntimeError('ComfyUI 缺少節點：' + '、'.join(sorted(absent)))
+                raise ComfyWorkflowError('ComfyUI 缺少節點：' + '、'.join(sorted(absent)))
             return
         except OSError:
             time.sleep(1)

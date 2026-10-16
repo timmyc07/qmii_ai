@@ -1,5 +1,5 @@
 'use strict';
-const CACHE = 'qianmi-mobile-v6';
+const CACHE = 'qianmi-mobile-v7';
 const SHELL = ['/', '/static/mobile.css', '/static/mobile.js', '/static/icon-192.png', '/static/icon-512.png', '/static/manifest.webmanifest'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('qianmi-mobile-') && key !== CACHE).map(key => caches.delete(key))))));

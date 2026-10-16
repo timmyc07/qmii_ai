@@ -106,13 +106,16 @@ async function loadLibrary(reset = false) {
     const value = await api(`/api/library?offset=${libraryOffset}`);
     for (const artwork of value.items) {
       const figure = document.createElement('figure'); figure.className = 'result';
-      const image = document.createElement('img'); image.src = artwork.url; image.alt = '作品'; image.loading = 'lazy';
+      const video = artwork.media_type === 'video';
+      const image = document.createElement(video ? 'video' : 'img'); image.src = artwork.url;
+      if (video) { image.controls = true; image.preload = 'metadata'; image.playsInline = true; }
+      else { image.alt = '作品'; image.loading = 'lazy'; }
       const preview = document.createElement('button'); preview.type = 'button'; preview.className = 'artwork-preview';
       preview.setAttribute('aria-label', '預覽作品'); preview.append(image);
       preview.onclick = () => { $('preview-image').src = artwork.url; $('preview-download').href = artwork.url;
         $('preview-download').download = `千迷AI-${artwork.id.slice(0, 12)}`; $('preview').showModal(); };
       const link = document.createElement('a'); link.href = artwork.url; link.download = `千迷AI-${artwork.id.slice(0, 12)}`; link.textContent = '↓ 下載作品';
-      figure.append(preview, link); $('artworks').append(figure);
+      figure.append(video ? image : preview, link); $('artworks').append(figure);
     }
     libraryOffset = value.next; $('more-artworks').classList.toggle('hidden', value.next === null);
   } catch (error) { toast(error.message); }
@@ -184,8 +187,11 @@ function renderJob(job) {
   job.results.forEach((url, index) => {
     if (card.querySelector(`[data-result="${index}"]`)) return;
     const figure = document.createElement('figure'); figure.className = 'result'; figure.dataset.result = index;
-    const image = document.createElement('img'); image.src = url; image.alt = '千迷AI生成圖片'; image.loading = 'lazy';
-    const link = document.createElement('a'); link.href = url; link.download = `千迷AI-${job.id.slice(0, 8)}-${index + 1}.png`; link.textContent = '↓ 儲存圖片';
+    const video = job.result_files[index].endsWith('.mp4');
+    const image = document.createElement(video ? 'video' : 'img'); image.src = url;
+    if (video) { image.controls = true; image.preload = 'metadata'; image.playsInline = true; }
+    else { image.alt = '千迷AI生成圖片'; image.loading = 'lazy'; }
+    const link = document.createElement('a'); link.href = url; link.download = `千迷AI-${job.id.slice(0, 8)}-${index + 1}.${video ? 'mp4' : 'png'}`; link.textContent = video ? '↓ 儲存影片' : '↓ 儲存圖片';
     figure.append(image, link); card.append(figure);
   });
 }

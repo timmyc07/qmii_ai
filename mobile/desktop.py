@@ -110,8 +110,7 @@ def main():
         if action == 'jobs':
             value = client.request('/api/jobs')
             for job in value['jobs']:
-                job['results'] = [str(ROOT / 'output' / 'mobile' / job['id'] / f'{i}.png')
-                                  for i in range(len(job['results']))]
+                job['results'] = [str(ROOT / 'output' / 'mobile' / job['id'] / name) for name in job['result_files']]
             emit(value)
             return
         images = []
@@ -125,11 +124,14 @@ def main():
                                              precise_mode=payload.get('precise_mode', False), images=images,
                                              request_id=secrets.token_hex(16), origin=desktop_origin()))
         seen = 0
-        total = 1 if payload['workflow'] == 'reference' else max(1, len(images))
+        total = 1 if payload['workflow'] in ('reference', 'h3_image') else max(1, len(images))
         while True:
             for index in range(seen, len(job['results'])):
-                emit(dict(index=index + 1, total=total, message='圖片完成', done=False, error=None,
-                          image=str(ROOT / 'output' / 'mobile' / job['id'] / f'{index}.png')))
+                name = job['result_files'][index]
+                video = name.endswith('.mp4')
+                path = str(ROOT / 'output' / 'mobile' / job['id'] / name)
+                emit(dict(index=index + 1, total=total, message='影片完成' if video else '圖片完成', done=False, error=None,
+                          image=None if video else path, video=path if video else None))
             seen = len(job['results'])
             done = job['status'] in ('completed', 'failed')
             emit(dict(index=seen, total=total, message=job['message'], done=done, image=None,

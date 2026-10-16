@@ -15,11 +15,13 @@ FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
 def generate(payload, sources, output_dir, progress):
     workflow = payload['workflow']
-    if workflow not in ('quick', 'reference', 'superduper', 'nsfw_adv'):
+    if workflow not in ('quick', 'reference', 'superduper', 'nsfw_adv', 'h3_image'):
         raise RuntimeError('不支援的生成模式。')
     if workflow == 'reference' and len(sources) < 2:
         raise RuntimeError('多圖參考生成至少需要 2 張參考圖片。')
-    params = validate_parameters(payload.get('parameters', {}))
+    params = validate_parameters(payload.get('parameters', {}), workflow)
+    if workflow == 'h3_image' and len(sources) != 1:
+        raise ValueError('圖片生影片需要一張首幀圖片。')
 
     def new_seed(index=0):
         return (params['seed'] + index) % 9007199254740992 if 'seed' in params else secrets.randbelow(2**53)
@@ -27,6 +29,11 @@ def generate(payload, sources, output_dir, progress):
     progress('等待電腦可用…')
     with gpu_lock():
         prompt = payload['prompt']
+        if workflow == 'h3_image':
+            from .h3 import run
+            results = run(params, prompt, new_seed(), output_dir, progress, sources[0])
+            progress('有聲影片完成', results)
+            return results
         if payload.get('precise_mode'):
             from .precision import apply_rules
             prompt = apply_rules(prompt, workflow, bool(sources))
