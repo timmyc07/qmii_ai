@@ -6,7 +6,7 @@ import secrets
 import subprocess
 
 from .gpu import gpu_lock
-from .parameters import validate_parameters
+from .parameters import validate_parameters, validate_h3_sources
 
 LOG = logging.getLogger('qianmi.mobile')
 TURBO = Path(r'D:\AI\Qwen-Image-2.1-Turbo')
@@ -20,8 +20,8 @@ def generate(payload, sources, output_dir, progress):
     if workflow == 'reference' and len(sources) < 2:
         raise RuntimeError('多圖參考生成至少需要 2 張參考圖片。')
     params = validate_parameters(payload.get('parameters', {}), workflow)
-    if workflow == 'h3_image' and len(sources) != 1:
-        raise ValueError('圖片生影片需要一張首幀圖片。')
+    if workflow == 'h3_image':
+        validate_h3_sources(params, sources)
 
     def new_seed(index=0):
         return (params['seed'] + index) % 9007199254740992 if 'seed' in params else secrets.randbelow(2**53)
@@ -31,8 +31,9 @@ def generate(payload, sources, output_dir, progress):
         prompt = payload['prompt']
         if workflow == 'h3_image':
             from .h3 import run
-            results = run(params, prompt, new_seed(), output_dir, progress, sources[0])
-            progress('有聲影片完成', results)
+            results = run(params, prompt, new_seed(), output_dir, progress, sources[0],
+                          sources[1] if len(sources) == 2 else None)
+            progress('影片完成', results)
             return results
         if payload.get('precise_mode'):
             from .precision import apply_rules

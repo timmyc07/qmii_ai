@@ -68,12 +68,38 @@
         <details class="creation-help"><summary>提示詞格式說明</summary><p>保留首幀參照 Header，以及 integrated_multimodal_description、overall_soundscape、non_diegetic_music 三個標籤；段落間空一行。時間碼須在設定片長內，首幀描述應與圖片一致。無配樂填 N/A。</p></details>
             <h2>影片設定</h2>
             <div class="parameter-grid">
+              <label>品質配方<select id="video-profile"><option value="turbo4">快速 · Turbo 4 步（768p）</option><option value="turbo8">細緻 · Turbo 8 步（544p）</option><option value="base">原版 · 20～60 步</option></select></label>
               <label>片長（秒）<input id="video-duration" type="number" min="1" max="15" step="0.1" value="12" required></label>
-              <label>影片尺寸<select id="video-size"><option value="512x896">直式 512 × 896</option><option value="896x512">橫式 896 × 512</option><option value="768x1344">直式 768 × 1344</option><option value="1344x768">橫式 1344 × 768</option></select></label>
+              <label>影片尺寸<select id="video-size"><option value="512x896">直式 512 × 896</option><option value="896x512">橫式 896 × 512</option><option value="512x512">正方形 512 × 512</option><option value="768x1344">直式 768 × 1344</option><option value="1344x768">橫式 1344 × 768</option><option value="custom">自訂寬高</option></select></label>
+              <label>寬度<input id="video-width" type="number" min="256" max="1344" step="32" value="512" required></label>
+              <label>高度<input id="video-height" type="number" min="256" max="1344" step="32" value="896" required></label>
               <label>影片種子<input id="video-seed" type="number" min="0" max="9007199254740991" step="1" placeholder="留白每次隨機"></label>
+              <label>圖片適配<select id="video-crop"><option value="center">置中裁切（保留比例）</option><option value="disabled">拉伸填滿（保留全部內容）</option></select></label>
             </div>
-            <p class="creation-help">24 fps、有聲 MP4、固定 4 步 Turbo 配方。片長會向上對齊有效幀數；768p 較慢且需要更多記憶體。</p>
-            <div class="video-actions"><button id="video-save-settings" type="button" class="secondary-button">儲存此模式設定</button></div>
+            <p id="video-summary" class="creation-help" role="status"></p>
+            <label class="video-check"><input id="video-audio" type="checkbox" checked>保留生成的聲音</label>
+            <h2>一致性輔助（可選）</h2>
+            <label class="video-check"><input id="video-identity" type="checkbox">加入主體一致性描述</label>
+            <p class="creation-help">在提示詞中要求保留首幀主體特徵；這是文字引導，不能保證臉部不漂移。</p>
+            <div class="parameter-grid"><label>尾幀約束<select id="video-end-frame"><option value="none">不使用（自由動作）</option><option value="first">以首幀作為尾幀</option><option value="custom">自選尾幀圖片</option></select></label></div>
+            <div id="video-last-controls" class="hidden"><button id="video-last-upload" type="button" class="secondary-button">選擇尾幀圖片</button><div id="video-last-preview" class="image-tray"></div></div>
+            <p class="creation-help">使用 H3 原生首尾幀條件。相同首尾幀適合回到起始姿勢，可能減少動作幅度；不會鎖定影片中間每一幀。自選尾幀在提示詞中以 &lt;Picture 2&gt; 參照。</p>
+            <details class="creation-help"><summary>RefMod 核對結果</summary><p>RefMod 是 VAE 參考資料包，不是訓練出的角色 LoRA。4～8 張圖沒有保證身分鎖定的證據，壓縮也可能丟失臉部細節。目前首尾幀 FL2VA 模型與官方多圖參考 Ref2VA 模型不同，此配方未加入未經驗證的 RefMod 注入。</p><p>同一角色選擇清楚的首幀、避免大幅遮臉與快速轉身，並比較固定種子下的一致性輔助效果。</p></details>
+            <details id="video-advanced" class="creation-help"><summary>進階生成與輸出參數</summary>
+              <p>配方切換會重設下列採樣參數。Turbo 步數固定配對 LoRA；修改權重或 shift 可能降低品質，還原配方可復原。</p>
+              <div class="parameter-grid">
+                <label>採樣步數<input id="video-steps" type="number" min="20" max="60" step="1" value="4" disabled required></label>
+                <label>採樣器<select id="video-sampler"><option value="euler">Euler（作者建議）</option><option value="res_multistep">Res Multistep</option></select></label>
+                <label>Turbo LoRA 權重<input id="video-lora" type="number" min="0" max="2" step="0.05" value="1" required></label>
+                <label>影片 shift<input id="video-shift-video" type="number" min="0.01" max="100" step="0.01" value="6" required></label>
+                <label>音訊 shift<input id="video-shift-audio" type="number" min="0.01" max="100" step="0.01" value="3" required></label>
+                <label>圖片縮放演算法<select id="video-resize"><option value="lanczos">Lanczos</option><option value="bicubic">Bicubic</option><option value="bilinear">Bilinear</option><option value="area">Area</option><option value="nearest-exact">Nearest Exact</option></select></label>
+                <label>MP4 壓縮 CRF<input id="video-crf" type="number" min="0" max="51" step="1" value="18" required></label>
+              </div>
+              <p>CRF 越低檔案越大，18 為預設。關閉聲音只略過音訊解碼與輸出，模型仍聯合生成影音。</p>
+            </details>
+            <p class="recipe-lock">配方固定：24 fps、Simple 排程、完整去噪、CFG 蒸餾引導、H.264／8-bit／sRGB MP4。CFG、負面提示詞及重繪強度不適用此工作流。短邊最多 768、長邊最多 1344，寬高須為 32 倍數。</p>
+            <div class="video-actions"><button id="video-save-settings" type="button" class="secondary-button">儲存此模式設定</button><button id="video-reset-settings" type="button" class="secondary-button">還原配方</button></div>
       </form>
     </aside>
   </div>

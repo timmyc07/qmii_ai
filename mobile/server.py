@@ -23,7 +23,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .settings import Settings, SettingsStore, source_revision
-from .parameters import Parameters, validate_parameters
+from .parameters import Parameters, validate_parameters, validate_h3_sources
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -400,8 +400,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             defaults = settings.read()['generation'].get(value.workflow, {})
             parameters = validate_parameters(value.parameters.model_dump(exclude_none=True) if value.parameters is not None
                                              else {k: v for k, v in defaults.items() if v is not None}, value.workflow)
-            if value.workflow == 'h3_image' and len(value.images) != 1:
-                raise ValueError('圖片生影片需要一張首幀圖片。')
+            if value.workflow == 'h3_image':
+                validate_h3_sources(parameters, value.images)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         job_id, now = secrets.token_hex(16), time.time()

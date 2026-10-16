@@ -211,6 +211,9 @@ button:disabled { cursor: wait; opacity: .6; }
 .message { animation: rise-in .3s ease; margin: 0 0 1.5rem; overflow-wrap: anywhere; min-width: 0; }
 .user-message { margin-left: auto; max-width: 90%; width: max-content; background: linear-gradient(135deg, #f0e7f8, #f9eff8); border: 1px solid #e9def1; border-radius: 1.5rem 1.5rem .5rem 1.5rem; padding: 1rem 1.15rem; white-space: pre-wrap; font-size: 1rem; line-height: 1.75; }
 .reference-prompt { margin-bottom: .65rem; }
+.video-check { display: flex; align-items: center; gap: .5rem; font-size: .85rem; line-height: 1.6; }
+.video-check input { accent-color: #9675bc; flex: none; }
+#video-last-controls { display: grid; gap: .5rem; }
 .assistant-result { max-width: 100%; }
 .assistant-label { font-size: .9rem; font-weight: 800; color: #80699a; margin: 0 0 .65rem .25rem; }
 .result-image { max-width: min(100%, 34rem); max-height: min(55dvh, 38rem); object-fit: contain; border-radius: 1.5rem; border: .3rem solid #f7f1fb; box-shadow: 0 12px 32px #70578b16; display: block; animation: pop-in .4s; }

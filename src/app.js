@@ -16,10 +16,43 @@ let followingLatest = true, scrollFrame = 0, previousScrollTop = 0;
 function currentFeed() { return state.studioMode === 'h3_image' ? videoFeed : feed; }
 
 function videoParameters() {
-  const [width, height] = $('video-size').value.split('x').map(Number);
-  const values = { width, height, duration: Number($('video-duration').value) };
+  const values = { video_profile: $('video-profile').value,
+    width: Number($('video-width').value), height: Number($('video-height').value), duration: Number($('video-duration').value),
+    steps: Number($('video-steps').value), sampler: $('video-sampler').value,
+    shift_video: Number($('video-shift-video').value), shift_audio: Number($('video-shift-audio').value),
+    crop: $('video-crop').value, resize_method: $('video-resize').value, video_crf: Number($('video-crf').value),
+    video_audio: $('video-audio').checked, identity_prompt: $('video-identity').checked, end_frame: $('video-end-frame').value };
+  if (values.video_profile !== 'base') values.lora_strength = Number($('video-lora').value);
   if ($('video-seed').value !== '') values.seed = Number($('video-seed').value);
   return values;
+}
+
+function updateVideoSettings() {
+  const profile = $('video-profile').value, base = profile === 'base';
+  $('video-steps').disabled = !base; $('video-lora').disabled = base;
+  if (!base) $('video-steps').value = profile === 'turbo4' ? 4 : 8;
+  const width = Number($('video-width').value), height = Number($('video-height').value);
+  $('video-width').setCustomValidity(Math.min(width, height) > 768 ? '短邊最多 768 像素' : '');
+  const size = `${width}x${height}`;
+  $('video-size').value = [...$('video-size').options].some(option => option.value === size) ? size : 'custom';
+  const length = Math.max(5, Math.round(Number($('video-duration').value) * 24));
+  const frames = length + (5 - length % 17 + 17) % 17;
+  $('video-summary').textContent = `${frames} 幀 · 實際約 ${(frames / 24).toFixed(2)} 秒 · 24 fps。${profile === 'turbo8' ? '8 步 LoRA 以 544p 訓練，建議先用 512 × 896；需要較長生成時間。' : '768p 需要更多時間與記憶體。'}`;
+  $('video-last-controls').classList.toggle('hidden', $('video-end-frame').value !== 'custom');
+  $('video-last-upload').disabled = state.generating;
+  renderImageTray();
+}
+
+function loadVideoParameters(values = {}) {
+  $('video-profile').value = values.video_profile ?? 'turbo4';
+  const defaults = { duration: 12, width: 512, height: 896, seed: '', steps: 20, sampler: 'euler', crop: 'center',
+    resize: 'lanczos', crf: 18, lora: 1, 'shift-video': values.video_profile === 'turbo8' || values.video_profile === 'base' ? 12 : 6,
+    'shift-audio': 3, 'end-frame': 'none' };
+  const keys = { resize: 'resize_method', crf: 'video_crf', lora: 'lora_strength', 'shift-video': 'shift_video', 'shift-audio': 'shift_audio', 'end-frame': 'end_frame' };
+  for (const [id, fallback] of Object.entries(defaults)) $('video-' + id).value = values[keys[id] || id] ?? fallback;
+  $('video-audio').checked = values.video_audio ?? true;
+  $('video-identity').checked = values.identity_prompt ?? false;
+  updateVideoSettings();
 }
 
 function setStudioMode(mode) {
@@ -53,16 +86,34 @@ function setStudioMode(mode) {
     previousScrollTop = conversation.scrollTop;
   });
   if (!video) return;
-  const values = state.generation.h3_image || {};
-  $('video-duration').value = values.duration ?? 12;
-  const size = `${values.width ?? 512}x${values.height ?? 896}`;
-  if (![...$('video-size').options].some(option => option.value === size)) $('video-size').add(new Option(size.replace('x', ' × '), size));
-  $('video-size').value = size;
-  $('video-seed').value = values.seed ?? '';
+  loadVideoParameters(state.generation.h3_image || {});
 }
 
 function setupVideoModes() {
   document.querySelectorAll('[data-studio-mode]').forEach(button => button.onclick = () => setStudioMode(button.dataset.studioMode));
+  $('video-profile').onchange = () => {
+    const base = $('video-profile').value === 'base';
+    $('video-steps').value = base ? 20 : $('video-profile').value === 'turbo4' ? 4 : 8;
+    $('video-shift-video').value = $('video-profile').value === 'turbo4' ? 6 : 12;
+    $('video-shift-audio').value = 3; $('video-lora').value = 1; $('video-sampler').value = 'euler';
+    updateVideoSettings();
+  };
+  $('video-size').onchange = () => {
+    if ($('video-size').value === 'custom') return;
+    [$('video-width').value, $('video-height').value] = $('video-size').value.split('x');
+    updateVideoSettings();
+  };
+  for (const id of ['duration', 'width', 'height', 'end-frame', 'crop']) $('video-' + id).addEventListener('input', updateVideoSettings);
+  $('video-last-upload').onclick = async () => {
+    try {
+      const file = await open({ multiple: false, directory: false, title: '選擇影片尾幀', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
+      if (!file) return;
+      state.videoLastImage = file;
+      const preview = $('video-last-preview'); preview.innerHTML = '';
+      const img = document.createElement('img'); img.src = convertFileSrc(file); img.alt = '影片尾幀';
+      img.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:13px'; preview.appendChild(img);
+    } catch (error) { toast(`選擇尾幀失敗：${error}`); }
+  };
   $('video-example').onclick = () => {
     const duration = $('video-duration').value, end = Number(duration).toFixed(3).padStart(6, '0');
     promptInput.value = `For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Realistic footage, warm afternoon sunlight, fixed camera. At 00:00.000 the shot matches <Picture 1>: a small orange cat sits on a wooden table beside a window. During the shot the cat slowly turns its head toward the window, blinks and gently moves its tail. The shot ends at 00:${end}.\n\noverall_soundscape: Quiet room ambience, faint birds outside the window. No dialogue.\n\nnon_diegetic_music: N/A`;
@@ -71,8 +122,9 @@ function setupVideoModes() {
   $('video-save-settings').onclick = async () => {
     for (const input of $('video-form').querySelectorAll('input, select')) if (!input.reportValidity()) return;
     state.generation[state.studioMode] = videoParameters();
-    if (await persistSettings()) toast('此影片模式的片長、尺寸與種子已儲存');
+    if (await persistSettings()) toast('影片參數已儲存；尾幀圖片需在每次開啟程式後重新選擇');
   };
+  $('video-reset-settings').onclick = () => { loadVideoParameters(); toast('已還原影片配方，儲存後會成為預設'); };
   $('video-form').onsubmit = event => { event.preventDefault(); submitPrompt(); };
 }
 
@@ -462,7 +514,9 @@ function openMobileConnection() {
 
 function appendUserMessage(text, images) {
   const node = document.createElement('article'); node.className = 'message user-message';
-  const prompt = document.createElement('div'); prompt.className = 'reference-prompt'; prompt.textContent = text; node.appendChild(prompt);
+  if (!images.length) {
+    const prompt = document.createElement('div'); prompt.className = 'reference-prompt'; prompt.textContent = text; node.appendChild(prompt);
+  }
   if (images.length) {
     const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
     images.forEach(file => { const im = document.createElement('img'); im.src = convertFileSrc(file); im.style.cssText = 'width:62px;height:62px;object-fit:cover;border-radius:13px'; row.appendChild(im); }); node.appendChild(row);
@@ -472,6 +526,7 @@ function appendUserMessage(text, images) {
 
 function setBusy(value) {
   state.generating = value; $('send').disabled = value; $('upload-images').disabled = value;
+  $('video-last-upload').disabled = value;
   $('workflow-mode').disabled = value;
   $('workflow-trigger').disabled = value;
   $('workflow-menu').classList.remove('is-open');
@@ -492,6 +547,10 @@ async function submitPrompt() {
   const workflow = video ? 'h3_image' : state.workflow;
   const parameters = video ? videoParameters() : currentParameters();
   if (video && images.length !== 1) { toast('請先選擇一張首幀圖片'); return; }
+  if (video && parameters.end_frame === 'custom') {
+    if (!state.videoLastImage) { toast('請選擇尾幀圖片，或將尾幀約束改為不使用'); return; }
+    images.push(state.videoLastImage);
+  }
   if (workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
   $('welcome').classList.add('hidden');
   const target = currentFeed();
@@ -515,7 +574,7 @@ function renderImageTray() {
     tray.appendChild(wrap);
   });
   if (!state.images.length) { $('batch-label').textContent = ''; return; }
-  $('batch-label').textContent = state.studioMode === 'h3_image' ? '影片首幀 · 會依影片尺寸置中裁切' : state.workflow === 'reference'
+  $('batch-label').textContent = state.studioMode === 'h3_image' ? `影片首幀 · ${$('video-crop').value === 'center' ? '置中裁切' : '拉伸填滿'}` : state.workflow === 'reference'
     ? `${state.images.length} 張參考圖${state.images.length >= 2 ? ' · 會融合參考' : ''}`
     : `${state.images.length} 張圖片${state.images.length > 1 ? ' · 會依序修改' : ''}`;
 }

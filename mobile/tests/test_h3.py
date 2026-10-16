@@ -35,8 +35,13 @@ class H3Test(unittest.TestCase):
                 job = dict(prompt='cat turns its head', workflow='h3_image', images=[image], request_id='a' * 32,
                            parameters=dict(duration=6, seed=42))
                 for invalid in ({**job, 'images': []}, {**job, 'images': [image, image]},
-                                {**job, 'parameters': {'duration': 16}}, {**job, 'workflow': 'h3_text'}):
+                                {**job, 'parameters': {'duration': 16}}, {**job, 'workflow': 'h3_text'},
+                                {**job, 'parameters': {'end_frame': 'custom'}}):
                     self.assertEqual(client.post('/api/jobs', json=invalid, headers=headers).status_code, 422)
+                tail = client.post('/api/jobs', json={**job, 'images': [image, image], 'request_id': 'b' * 32,
+                    'parameters': dict(video_profile='turbo8', steps=8, end_frame='custom', video_audio=False)}, headers=headers)
+                self.assertEqual(tail.status_code, 200)
+                self.assertEqual(tail.json()['parameters']['end_frame'], 'custom')
                 result = client.post('/api/jobs', json=job, headers=headers).json()
                 for _ in range(100):
                     result = client.get('/api/jobs/' + result['id']).json()
@@ -80,6 +85,53 @@ class H3Test(unittest.TestCase):
         with self.assertRaises(ValueError):
             Settings.model_validate({'generation': {'h3_image': {'steps': 8}}})
 
+    def test_profiles_and_safe_controls_reach_native_nodes(self):
+        for profile, steps, shift in [('turbo4', 4, 6), ('turbo8', 8, 12), ('base', 25, 12)]:
+            parameters = validate_parameters(dict(video_profile=profile, steps=steps, crop='disabled',
+                                                  resize_method='bicubic', video_audio=False, video_crf=23,
+                                                  identity_prompt=True, end_frame='first'), 'h3_image')
+            value = h3.graph(parameters, 'integrated_multimodal_description: [Shot 1] cat blinks', 42, 'first.png')
+            self.assertEqual(value['scheduler']['inputs']['steps'], steps)
+            self.assertEqual(value['scheduler']['inputs']['denoise'], 1)
+            self.assertEqual(value['shift']['inputs']['shift_video'], shift)
+            self.assertEqual(value['sampler']['inputs']['sampler_name'], 'euler')
+            self.assertEqual(value['fit']['inputs']['crop'], 'disabled')
+            self.assertEqual(value['fit']['inputs']['upscale_method'], 'bicubic')
+            self.assertEqual(value['save']['inputs']['format.codec.encoding.crf'], 23)
+            self.assertNotIn('audio', value)
+            self.assertNotIn('audio', value['video']['inputs'])
+            self.assertEqual(value['condition']['inputs']['last_frame'], ['fit', 0])
+            self.assertIn('<Picture 2>', value['condition']['inputs']['prompt'])
+            self.assertIn('Preserve the identity', value['condition']['inputs']['prompt'])
+            self.assertEqual('turbo' in value, profile != 'base')
+            if profile != 'base':
+                self.assertEqual(value['turbo']['inputs']['lora_name'], h3.FILES['loras'][profile == 'turbo8'])
+        value = h3.graph(dict(end_frame='custom'), 'cat blinks', 42, 'first.png', 'last.png')
+        self.assertEqual(value['last']['inputs']['image'], 'last.png')
+        self.assertEqual(value['condition']['inputs']['last_frame'], ['last_fit', 0])
+        self.assertEqual(h3.conditioning_prompt({}, 'original prompt'), 'original prompt')
+        for invalid in (dict(video_profile='turbo8', steps=4), dict(video_profile='base', steps=8),
+                        dict(video_profile='base', lora_strength=1), dict(shift_audio=float('nan')),
+                        dict(video_audio='false'), dict(video_crf=52), dict(sampler='unknown'), dict(cfg=2), dict(denoise=.5)):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_parameters(invalid, 'h3_image')
+        with self.assertRaises(ValueError):
+            validate_parameters(dict(video_profile='turbo4'), 'quick')
+        parameters = dict(video_profile='turbo8', steps=8, video_audio=False, video_crf=23,
+                          end_frame='custom', identity_prompt=True, width=896, height=512, seed=42)
+        stored = Settings.model_validate({'generation': {'h3_image': parameters}}).model_dump(exclude_none=True)
+        self.assertEqual(stored['generation']['h3_image'], parameters)
+
+    def test_custom_end_frame_source_validation_and_routing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = dict(prompt='cat blinks', workflow='h3_image', parameters=dict(end_frame='custom'))
+            with patch('mobile.generation.gpu_lock', return_value=nullcontext()), patch('mobile.h3.run', return_value=['0.mp4']) as runner:
+                generate(payload, [root / 'first.png', root / 'last.png'], root, Mock())
+                self.assertEqual(runner.call_args.args[-2:], (root / 'first.png', root / 'last.png'))
+                with self.assertRaises(ValueError):
+                    generate(payload, [root / 'first.png'], root, Mock())
+
     def test_routes_exactly_one_image_and_retains_mp4(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -88,7 +140,8 @@ class H3Test(unittest.TestCase):
             with patch('mobile.generation.gpu_lock', return_value=nullcontext()), patch('mobile.h3.run', return_value=['0.mp4']) as runner:
                 self.assertEqual(generate(payload, [source], output, Mock()), ['0.mp4'])
                 self.assertEqual(runner.call_args.args[2], 42)
-                self.assertEqual(runner.call_args.args[-1], source)
+                self.assertEqual(runner.call_args.args[-2], source)
+                self.assertIsNone(runner.call_args.args[-1])
                 for images in ([], [source, source]):
                     with self.assertRaisesRegex(ValueError, '一張'):
                         generate(payload, images, output, Mock())
@@ -124,7 +177,7 @@ class H3Test(unittest.TestCase):
                 for name in names:
                     (models / folder / name).write_bytes(b'model')
             with patch('mobile.h3.COMFY', comfy), patch('mobile.h3.PYTHON', python), patch('mobile.h3.MODELS', models):
-                h3.ensure_models(); h3.ensure_models()
+                h3.ensure_models(); h3.ensure_models(dict(video_profile='turbo8'))
             for folder, names in h3.FILES.items():
                 for name in names:
                     self.assertTrue((models / folder / name).samefile(comfy / 'models' / folder / name))
