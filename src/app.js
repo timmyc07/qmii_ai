@@ -169,13 +169,19 @@ function parameterKey() { return state.workflow; }
 function currentParameters() { return Object.fromEntries(Object.entries(state.generation[parameterKey()] || {}).filter(([, value]) => value !== null)); }
 
 function parameterFields() {
-  return [['steps', '步數 Steps', 4, 60, 1], ['cfg', '提示詞引導 CFG', 1, 15, .1], ['seed', '種子（留白隨機）', 0, 9007199254740991, 1]];
+  return [
+    { key: 'width', label: '寬度 Width', min: 256, max: 2048, step: 32, defaultValue: 1024, help: '輸出圖片的水平像素。調高：畫面更寬、細節與耗時及記憶體用量增加。調低：更快、更省記憶體，但細節與可容納內容減少。必須是 32 的倍數。' },
+    { key: 'height', label: '高度 Height', min: 256, max: 2048, step: 32, defaultValue: 1024, help: '輸出圖片的垂直像素。調高：畫面更高、細節與耗時及記憶體用量增加。調低：更快、更省記憶體，但細節減少。必須是 32 的倍數。' },
+    { key: 'steps', label: '步數 Steps', min: 4, max: 60, step: 1, defaultValue: 8, help: '模型反覆去除雜訊的次數。8 是 Turbo 官方蒸餾配方。調高：明顯變慢，且會改用一般排程，不保證更清晰，可能反而失真。調低：更快，但通常細節、文字與構圖穩定度下降。' },
+    { key: 'cfg', label: '提示詞引導 CFG', min: 1, max: 15, step: .1, defaultValue: 1, help: '控制模型貼近提示詞的強度。1 是 Turbo 原生值。調高：提示詞約束與負面提示詞作用增強，但速度變慢，過高容易過度銳化、色彩僵硬或產生瑕疵。最低為 1；Turbo 不建議為追求畫質而提高。' },
+    { key: 'seed', label: '種子 Seed', min: 0, max: 9007199254740991, step: 1, defaultValue: '隨機', help: '決定初始雜訊；相同提示詞、尺寸與其他參數搭配相同種子可重現結果。數字大小沒有強弱之分，換一個數字只是換一種構圖與細節。留白會每次隨機。' },
+    { key: 'negative', label: '負面提示詞 Negative prompt', defaultValue: '留白', help: '描述不希望出現的內容。CFG=1 時 Turbo 幾乎不使用負面提示詞；提高 CFG 後作用才會變明顯。內容越多不一定越好，過度限制可能破壞構圖。' }
+  ];
 }
 
 function renderParameters() {
   const values = currentParameters();
-  const defaults = { steps: 8, cfg: 1 };
-  $('generation-parameters').innerHTML = parameterFields().map(([key, label, min, max, step]) => `<label>${label}<input data-parameter="${key}" type="${key === 'negative' ? 'text' : 'number'}" ${min === undefined ? 'maxlength="4000"' : `min="${min}" max="${max}" step="${step}"`} placeholder="${escapeHtml(defaults[key] ?? (key === 'seed' ? '隨機' : '沿用配方'))}" value="${escapeHtml(values[key] ?? '')}"></label>`).join('');
+  $('generation-parameters').innerHTML = parameterFields().map(field => `<div class="parameter-field"><label>${field.label}<input data-parameter="${field.key}" type="${field.key === 'negative' ? 'text' : 'number'}" ${field.min === undefined ? 'maxlength="4000"' : `min="${field.min}" max="${field.max}" step="${field.step}"`} placeholder="${escapeHtml(field.defaultValue)}" value="${escapeHtml(values[field.key] ?? '')}"></label><p>${escapeHtml(field.help)}</p></div>`).join('');
   $('generation-parameters').querySelectorAll('input').forEach(input => input.oninput = () => {
     if (!input.checkValidity()) return;
     const values = currentParameters();

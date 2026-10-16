@@ -31,13 +31,20 @@ function jobTime(value) { return value ? new Date(value * 1000).toLocaleString('
 function parameterKey() { return $('workflow').value; }
 function currentParameters() { return Object.fromEntries(Object.entries(settings.generation?.[parameterKey()] || {}).filter(([, value]) => value !== null)); }
 function renderParameters() {
-  const fields = [['steps', '步數 Steps', 4, 60, 1], ['cfg', '提示詞引導 CFG', 1, 15, .1], ['seed', '種子（留白隨機）', 0, 9007199254740991, 1]];
+  const fields = [
+    ['width', '寬度 Width', 256, 2048, 32, '1024', '調高會增加水平空間、細節、耗時與記憶體；調低會更快但細節減少。須為 32 的倍數。'],
+    ['height', '高度 Height', 256, 2048, 32, '1024', '調高會增加垂直空間、細節、耗時與記憶體；調低會更快但細節減少。須為 32 的倍數。'],
+    ['steps', '步數 Steps', 4, 60, 1, '8', '8 是 Turbo 官方配方。調高會變慢且不保證更清晰；調低會更快，但細節與穩定度通常下降。'],
+    ['cfg', '提示詞引導 CFG', 1, 15, .1, '1', '1 是 Turbo 原生值。調高會加強提示詞約束，但更慢且過高容易失真；最低為 1。'],
+    ['seed', '種子（留白隨機）', 0, 9007199254740991, 1, '隨機', '相同設定與種子可重現結果。數字大小沒有強弱之分，換數字就是換構圖與細節。'],
+    ['negative', '負面提示詞', undefined, undefined, undefined, '留白', '描述不想出現的內容；CFG=1 時幾乎不起作用，提高 CFG 後才會較明顯。']
+  ];
   $('generation-parameters').replaceChildren();
-  for (const [key, title, min, max, step] of fields) {
+  for (const [key, title, min, max, step, placeholder, help] of fields) {
     const label = document.createElement('label'); label.textContent = title;
     const input = document.createElement('input'); input.dataset.parameter = key; input.type = key === 'negative' ? 'text' : 'number';
     if (min !== undefined) { input.min = min; input.max = max; input.step = step; } else input.maxLength = 4000;
-    input.placeholder = key === 'seed' ? '隨機' : key === 'steps' ? '8' : '1'; input.value = currentParameters()[key] ?? '';
+    input.placeholder = placeholder; input.value = currentParameters()[key] ?? '';
     input.oninput = () => {
       if (!input.checkValidity()) return;
       settings.generation ||= {}; const values = currentParameters();
@@ -45,7 +52,8 @@ function renderParameters() {
       settings.generation[parameterKey()] = values; dirty = true;
       $('settings-status').textContent = '參數尚未儲存；提交任務會使用目前值。';
     };
-    label.append(input); $('generation-parameters').append(label);
+    const note = document.createElement('small'); note.className = 'parameter-help'; note.textContent = help;
+    label.append(input, note); $('generation-parameters').append(label);
   }
 }
 $('reset-parameters').onclick = () => { if (settings.generation) delete settings.generation[parameterKey()]; dirty = true; renderParameters(); };

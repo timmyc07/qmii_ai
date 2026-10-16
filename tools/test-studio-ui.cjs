@@ -33,6 +33,8 @@ const { chromium } = require('playwright');
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
     assert.equal(await page.locator('#workflow option').count(), 2);
+    assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 6);
+    assert.match(await page.locator('#generation-parameters').textContent(), /調高.*調低/s);
     assert.equal(await page.locator('body').innerText().then(text => /ComfyUI|LoRA|Chroma|FLUX|Wan 2\.2/.test(text)), false);
     console.log('Mobile studio UI passed: Turbo-only modes.');
   } finally {

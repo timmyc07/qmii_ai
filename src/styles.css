@@ -259,6 +259,11 @@ button:disabled { cursor: wait; opacity: .6; }
 .creation-panel select { width: 100%; min-width: 0; padding: .65rem; border: 1px solid #d8c0ed; border-radius: .85rem; background: white; color: var(--ink); font: inherit; font-size: .8rem; }
 .creation-panel input[type=range] { width: 100%; accent-color: var(--purple-dark); }
 .creation-panel output { float: right; font-variant-numeric: tabular-nums; color: var(--purple-dark); }
+.parameter-field { margin-bottom: .9rem; }
+.creation-panel .parameter-grid { grid-template-columns: 1fr; }
+.parameter-field label { margin-bottom: .35rem; }
+.parameter-field p, .recipe-lock { margin: 0; color: var(--muted); font-size: .69rem; line-height: 1.55; }
+.recipe-lock { padding: .65rem .75rem; border-radius: .8rem; background: #f6effb; margin: .25rem 0 .75rem; }
 .template-card { border: 1px solid var(--line); border-radius: 1rem; background: white; padding: .75rem; margin-top: .6rem; }
 .template-card b { overflow-wrap: anywhere; display: block; font-size: .8rem; }
 .template-card p { margin-bottom: 0; font-size: .72rem; line-height: 1.65; color: var(--muted); }

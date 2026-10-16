@@ -12,6 +12,7 @@ header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-betwee
 
 .job-metadata{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.75rem;color:#80678f;line-height:1.7;padding:.7rem;background:#f3edf7;border-radius:.8rem}.identity-settings label{margin-top:.7rem}.identity-settings .note{line-height:1.6}
 
-.parameter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.parameter-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 12px 0; }
 .parameter-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 0; }
 .parameter-grid input { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #dccfec; border-radius: 10px; background: #fff; color: #493d58; }
+.parameter-help { display: block; color: #94859f; font-size: 11px; line-height: 1.5; }

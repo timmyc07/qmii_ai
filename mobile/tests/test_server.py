@@ -96,11 +96,13 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(self.client.get('/api/settings').status_code, 401)
         headers = self.login()
         value = self.client.get('/api/settings').json()
-        value.update(fixedPrompt='共同提示', presets=[dict(id='one', name='測試', prompt='花園')])
+        value.update(fixedPrompt='共同提示', presets=[dict(id='one', name='測試', prompt='花園')],
+                     generation={'quick': {'width': 768, 'height': 1344, 'negative': '模糊'}})
         self.assertEqual(self.client.put('/api/settings', json=value, headers=ORIGIN).status_code, 403)
         result = self.client.put('/api/settings', json=value, headers=headers)
         self.assertEqual(result.status_code, 200)
         self.assertEqual(self.client.get('/api/session').json()['fixedPrompt'], '共同提示')
+        self.assertEqual(result.json()['generation']['quick']['height'], 1344)
         self.assertEqual(self.client.put('/api/settings', json=value, headers=headers).status_code, 409)
         self.assertEqual(self.client.get('/api/settings').json()['presets'][0]['name'], '測試')
 

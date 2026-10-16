@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from PIL import Image
-from mobile.generation import generate
+from mobile.generation import generate, run_turbo
 
 
 class GenerationTest(unittest.TestCase):
@@ -39,6 +39,28 @@ class GenerationTest(unittest.TestCase):
                 generate(dict(prompt='test', workflow='pose'), [], output, Mock())
             with self.assertRaisesRegex(RuntimeError, '至少需要 2 張'):
                 generate(dict(prompt='test', workflow='reference'), [output / 'one.png'], output, Mock())
+
+    def test_turbo_applies_image_parameters_and_cleans_prompt_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / 'output.png'
+            with patch('mobile.generation.TURBO', root), patch('mobile.generation.subprocess.run') as execute:
+                execute.return_value.returncode = 0
+                run_turbo('main prompt', [], output, 42,
+                          dict(width=768, height=1344, steps=8, cfg=2.5, negative='blur'))
+            args = execute.call_args.args[0]
+            self.assertEqual(args[args.index('-W') + 1], '768')
+            self.assertEqual(args[args.index('-H') + 1], '1344')
+            self.assertEqual(args[args.index('--cfg-scale') + 1], '2.5')
+            self.assertIn('--negative-prompt-file', args)
+            self.assertFalse((root / '.prompt.txt').exists())
+            self.assertFalse((root / '.negative.txt').exists())
+
+    def test_dimensions_must_be_multiples_of_32(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ValueError):
+                generate(dict(prompt='test', workflow='quick', parameters=dict(width=1000)), [],
+                         Path(directory), Mock())
 
 
 if __name__ == '__main__':

@@ -61,6 +61,7 @@ def run_turbo(prompt, sources, output, seed, parameters=None):
     models = TURBO / 'models'
     prompt_file = output.parent / '.prompt.txt'
     prompt_file.write_text(prompt, encoding='utf-8')
+    negative_file = output.parent / '.negative.txt'
     args = [str(TURBO / 'sd-cli.exe'), '--diffusion-model', str(models / 'Qwen-Image-2.1-Turbo-AD-Q4_K.gguf'),
             '--llm', str(models / 'Qwen-Image-2.1-Turbo-Abliterated-Uncensored-AD-Q4_K.gguf'),
             '--vae', str(models / 'qwen_image_2.1_vae_bf16.safetensors'), '--prompt-file', str(prompt_file),
@@ -69,9 +70,12 @@ def run_turbo(prompt, sources, output, seed, parameters=None):
             '-W', '1024', '-H', '1024', '--diffusion-fa', '-o', str(output), '--backend', 'cuda0',
             '--auto-fit', 'on', '--max-vram', 'cuda0=9', '--seed', str(seed)]
     params = parameters or {}
-    for key, flag in [('steps', '--steps'), ('cfg', '--cfg-scale')]:
+    for key, flag in [('steps', '--steps'), ('cfg', '--cfg-scale'), ('width', '-W'), ('height', '-H')]:
         if key in params:
             args[args.index(flag) + 1] = str(params[key])
+    if params.get('negative'):
+        negative_file.write_text(params['negative'], encoding='utf-8')
+        args += ['--negative-prompt-file', str(negative_file)]
     if 'steps' in params and params['steps'] != 8:
         index = args.index('--sigmas')
         del args[index:index + 2]
@@ -89,3 +93,4 @@ def run_turbo(prompt, sources, output, seed, parameters=None):
             raise RuntimeError('快速生成失敗，請檢查電腦上的模型與顯示卡。')
     finally:
         prompt_file.unlink(missing_ok=True)
+        negative_file.unlink(missing_ok=True)
