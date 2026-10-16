@@ -7,6 +7,10 @@
 
 `dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 Turbo 與 SuperDuper 執行環境。
 
+## 0.5.4
+
+- 修正 SuperDuper 偵測到臉部後，RGBA 圖片送入 SAM 導致三通道斷言失敗；每段細修前轉為 RGB。
+
 ## 0.5.3
 
 - 所有模式可上傳圖片加提示詞；SuperDuper 與 NSFW Adv 新增逐張圖片編輯／重繪。

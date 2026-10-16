@@ -20,7 +20,8 @@ WORKFLOW = RUNTIME / 'qwenImage21SuperDuper_v2.json'
 URL = 'http://127.0.0.1:8191'
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 LOG = logging.getLogger('qianmi.mobile')
-REQUIRED_NODES = {'APG', 'FreSca', 'FaceDetailer', 'UltralyticsDetectorProvider', 'TextEncodeQwenImage21'}
+REQUIRED_NODES = {'APG', 'FreSca', 'FaceDetailer', 'UltralyticsDetectorProvider', 'TextEncodeQwenImage21',
+                  'SplitImageWithAlpha'}
 REQUIRED_FILES = (
     'models/diffusion_models/redqw21UNLOCKEDV2TI2I_redqw21UNLOCKEDV2_int8.safetensors',
     'models/text_encoders/qwen3vl_8b_int8_convrot.safetensors',
@@ -163,6 +164,12 @@ def compile_workflow(parameters, prompt, seed, image=None):
         graph['82']['inputs'].update({'images.image_1': ['131', 0], 'resolution': 0})
         graph['88']['inputs']['latent_image'] = ['82', 2]
         del graph['62']
+    # Qwen 2.1 VAE returns RGBA; SAM and every subsequent detailer require RGB.
+    for node_id, node in list(graph.items()):
+        if node['class_type'] == 'FaceDetailer':
+            rgb_id = f'rgb_{node_id}'
+            graph[rgb_id] = {'class_type': 'SplitImageWithAlpha', 'inputs': {'image': node['inputs']['image']}}
+            node['inputs']['image'] = [rgb_id, 0]
     graph['56']['inputs']['filename_prefix'] = 'qianmi_superduper'
     return graph
 

@@ -30,6 +30,9 @@ class SuperDuperTest(unittest.TestCase):
                                 (88, 'KSamplerAdvanced'), (89, 'KSamplerAdvanced'), (90, 'SeedNode'),
                                 (121, 'FaceDetailer'), (123, 'LoraLoader')]
         ]
+        for node in nodes:
+            if node['type'] == 'FaceDetailer':
+                node['widgets_values_named']['image'] = ['8', 0]
         with tempfile.TemporaryDirectory() as directory:
             workflow = Path(directory) / 'workflow.json'
             workflow.write_text(json.dumps({'nodes': nodes, 'links': []}), encoding='utf-8')
@@ -51,6 +54,9 @@ class SuperDuperTest(unittest.TestCase):
         self.assertEqual(edit['82']['inputs']['images.image_1'], ['131', 0])
         self.assertEqual(edit['88']['inputs']['latent_image'], ['82', 2])
         self.assertNotIn('62', edit)
+        self.assertEqual(graph['121']['inputs']['image'], ['rgb_121', 0])
+        self.assertEqual(graph['rgb_121']['class_type'], 'SplitImageWithAlpha')
+        self.assertEqual(graph['rgb_121']['inputs']['image'], ['8', 0])
 
 
 if __name__ == '__main__':
