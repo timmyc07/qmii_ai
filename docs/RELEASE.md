@@ -7,6 +7,11 @@
 
 `dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 Turbo 與 SuperDuper 執行環境。
 
+## 0.5.2
+
+- SuperDuper 安裝改用固定版本、SHA256 相同的 Hugging Face 基礎模型鏡像，不再需要 Civitai token。
+- 安裝時將局部細修 LoRA 的合併 MLP 投影等價拆分，避免 ComfyUI 忽略部分權重；保留原始檔案。
+
 ## 0.5.1
 
 - 修正桌面設定仍送出已移除的 `fixedPrompt`，導致儲存失敗。

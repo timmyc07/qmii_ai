@@ -30,6 +30,7 @@ class SuperDuperTest(unittest.TestCase):
         self.assertEqual(graph['89']['inputs']['start_at_step'], 12)
         self.assertEqual(graph['83']['inputs']['strength_model'], .65)
         self.assertEqual(graph['123']['inputs']['clip'], ['83', 1])
+        self.assertEqual(graph['123']['inputs']['lora_name'], 'qwen2.1_penisV01_000004956_comfy.safetensors')
         self.assertEqual(graph['121']['inputs']['model'], ['123', 0])
         self.assertEqual(graph['90']['inputs']['seed'], 42)
 

@@ -14,7 +14,7 @@
 powershell -ExecutionPolicy Bypass -File tools\install-superduper.ps1
 ```
 
-SuperDuper 基礎模型由 Civitai 保護；第一次安裝請在本機 PowerShell 以 `-CivitaiToken` 傳入自己的 API token，或手動下載到安裝程式提示的目標路徑。Token 不寫入 `.env`、設定或 Git。NSFW Adv 群組、精準模式與其他公開模型不需要此 token。
+SuperDuper 基礎模型從 [Hugging Face 鏡像](https://huggingface.co/Kutches/Qwen/blob/main/redqw21UNLOCKEDV2TI2I_redqw21UNLOCKEDV2_3258922.safetensors) 下載，固定版本並驗證 SHA256；與原 Civitai INT8 檔案相同，不需要登入或 API token。
 
 ## 建置
 

@@ -24,7 +24,7 @@ REQUIRED_FILES = (
     'models/text_encoders/qwen3vl_8b_int8_convrot.safetensors',
     'models/vae/qwen_image_2.1_vae_bf16.safetensors',
     'models/loras/pussyV2.safetensors',
-    'models/loras/qwen2.1_penisV01_000004956.safetensors',
+    'models/loras/qwen2.1_penisV01_000004956_comfy.safetensors',
     'models/ultralytics/bbox/face_yolov8m.pt',
     'models/ultralytics/bbox/female-breast-v4.7.pt',
     'models/ultralytics/bbox/pussyV2.pt',
@@ -138,6 +138,7 @@ def compile_workflow(parameters, prompt, seed):
     graph['89']['inputs'].update(steps=steps, start_at_step=split, cfg=parameters.get('cfg', 2))
     strength = parameters.get('lora_strength', .8)
     graph['83']['inputs'].update(strength_model=strength, strength_clip=strength)
+    graph['123']['inputs']['lora_name'] = 'qwen2.1_penisV01_000004956_comfy.safetensors'
     graph['56']['inputs']['filename_prefix'] = 'qianmi_superduper'
     return graph
 

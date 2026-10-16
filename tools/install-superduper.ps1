@@ -3,8 +3,7 @@ param(
     [string]$LoraSource = (Join-Path $env:USERPROFILE 'Downloads\pussyV2.safetensors'),
     [string]$PenisLoraSource = (Join-Path $env:USERPROFILE 'Downloads\qwen2.1_penisV01_000004956.safetensors'),
     [string]$LokrSource = (Join-Path $env:USERPROFILE 'Downloads\qwen-image_nsfw_adv_v1.0.safetensors'),
-    [string]$PrecisionTemplateSource = '',
-    [string]$CivitaiToken = ''
+    [string]$PrecisionTemplateSource = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,6 +54,8 @@ Copy-Item -LiteralPath $PrecisionTemplateSource -Destination (Join-Path $runtime
 New-Item -ItemType Directory -Force -Path (Join-Path $comfy 'models\loras') | Out-Null
 Copy-Item -LiteralPath $LoraSource -Destination (Join-Path $comfy 'models\loras\pussyV2.safetensors') -Force
 Copy-Item -LiteralPath $PenisLoraSource -Destination (Join-Path $comfy 'models\loras\qwen2.1_penisV01_000004956.safetensors') -Force
+& $python -s (Join-Path $PSScriptRoot 'prepare_qwen_lora.py') $PenisLoraSource (Join-Path $comfy 'models\loras\qwen2.1_penisV01_000004956_comfy.safetensors')
+if ($LASTEXITCODE -ne 0) { throw 'SuperDuper LoRA preparation failed.' }
 Copy-Item -LiteralPath $LokrSource -Destination (Join-Path $comfy 'models\loras\qwen-image_nsfw_adv_v1.0.safetensors') -Force
 
 $vaeTarget = Join-Path $comfy 'models\vae\qwen_image_2.1_vae_bf16.safetensors'
@@ -95,8 +96,7 @@ if (Test-Path -LiteralPath $impactInstaller) {
     if ($LASTEXITCODE -ne 0) { throw 'Impact Pack install.py failed.' }
 }
 
-$baseUrl = 'https://civitai.com/api/download/models/3370753?fileId=3258922'
-if ($CivitaiToken) { $baseUrl += "&token=$CivitaiToken" }
+$baseUrl = 'https://huggingface.co/Kutches/Qwen/resolve/2e407eb8da4172512aacef61be1fe5aa84a12f1d/redqw21UNLOCKEDV2TI2I_redqw21UNLOCKEDV2_3258922.safetensors'
 $downloads = @(
     @('https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors', 'models\text_encoders\qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors'),
     @('https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors', 'models\text_encoders\qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors'),
@@ -127,6 +127,7 @@ $required = @(
     'models\vae\qwen_image_2.1_vae_bf16.safetensors',
     'models\loras\pussyV2.safetensors',
     'models\loras\qwen2.1_penisV01_000004956.safetensors',
+    'models\loras\qwen2.1_penisV01_000004956_comfy.safetensors',
     'models\diffusion_models\qwen_image_fp8_e4m3fn.safetensors',
     'models\text_encoders\qwen_2.5_vl_7b_fp8_scaled.safetensors',
     'models\vae\qwen_image_vae.safetensors',
