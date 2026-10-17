@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import secrets
 import sqlite3
+from statistics import median
 import threading
 import time
 from urllib.parse import urlsplit
@@ -281,8 +282,41 @@ class Store:
             raise HTTPException(404, '找不到任務。')
         return row
 
-    @staticmethod
-    def public_job(row):
+    def job_progress(self, row):
+        now = time.time()
+        active = row['status'] in ('queued', 'running', 'cancelling')
+        total = 1 if row['workflow'] in ('reference', 'svi_image') else max(1, len(json.loads(row['sources'])))
+        estimate, samples, position = None, [], None
+        if active:
+            with self.connect() as db:
+                if row['status'] == 'queued':
+                    position = 1 + db.execute("""SELECT COUNT(*) FROM jobs WHERE id!=? AND
+                        (status IN ('running','cancelling') OR (status='queued' AND (created,id)<(?,?)))""",
+                        (row['id'], row['created'], row['id'])).fetchone()[0]
+                # shortcut: scan 50 recent runs; index normalized settings if older matches are needed.
+                history = db.execute("""SELECT parameters,sources,last_image,started,finished FROM jobs
+                    WHERE workflow=? AND precise_mode=? AND status='completed' AND started IS NOT NULL
+                    AND finished>started ORDER BY finished DESC LIMIT 50""",
+                    (row['workflow'], row['precise_mode'])).fetchall()
+            def settings(parameters):
+                return {key: value for key, value in json.loads(parameters).items()
+                        if key not in ('seed', 'negative', 'segment_prompts')}
+            for previous in history:
+                if (settings(previous['parameters']) == settings(row['parameters'])
+                        and len(json.loads(previous['sources'])) == len(json.loads(row['sources']))
+                        and bool(previous['last_image']) == bool(row['last_image'])):
+                    samples.append(previous['finished'] - previous['started'])
+                    if len(samples) == 5:
+                        break
+            if samples:
+                estimate = median(samples)
+        end = now if active else row['finished'] or row['updated'] or now
+        return dict(elapsed_seconds=max(0, end - row['created']) if row['created'] is not None else None,
+                    running_seconds=max(0, end - row['started']) if row['started'] is not None else None,
+                    estimated_seconds=estimate, sample_count=len(samples), queue_position=position,
+                    completed=len(json.loads(row['results'])), total=total)
+
+    def public_job(self, row):
         sources = json.loads(row['sources'])
         results = json.loads(row['results'])
         return dict(id=row['id'], status=row['status'], message=row['message'], created=row['created'],
@@ -291,6 +325,7 @@ class Store:
                     reserved_points=row['reserved_points'], settled=bool(row['settled']),
                     billing_status=row['billing_status'],
                     updated=row['updated'], started=row['started'], finished=row['finished'],
+                    progress=self.job_progress(row),
                     origin=json.loads(row['origin']),
                     sources=[f'/api/uploads/{value}' for value in sources], result_files=results,
                     last_image=f'/api/uploads/{row["last_image"]}' if row['last_image'] else None,
@@ -360,7 +395,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             store.reconcile_points()
             with control_lock:
                 with store.connect() as db:
-                    row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
+                    row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created,id LIMIT 1").fetchone()
                 if row:
                     try:
                         store.confirm_billing(row['id'])
@@ -798,6 +833,14 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @app.get('/static/membership.css')
     def membership_style():
         return FileResponse(ROOT / 'src' / 'membership.css', media_type='text/css')
+
+    @app.get('/static/taskprogress.js')
+    def progress_script():
+        return FileResponse(ROOT / 'src' / 'taskprogress.js', media_type='application/javascript')
+
+    @app.get('/static/taskprogress.css')
+    def progress_style():
+        return FileResponse(ROOT / 'src' / 'taskprogress.css', media_type='text/css')
 
     app.mount('/static', StaticFiles(directory=STATIC), name='static')
     return app

@@ -181,6 +181,7 @@ def main():
             done = job['status'] in ('completed', 'failed', 'cancelled')
             emit(dict(index=seen, total=total, message=job['message'], done=done, image=None,
                       jobId=job['id'],
+                      status=job['status'], progress=job.get('progress'),
                       billingStatus=job.get('billing_status'),
                       error=job['message'] if job['status'] == 'failed' else None))
             if done:

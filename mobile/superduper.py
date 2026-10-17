@@ -220,8 +220,9 @@ def compile_workflow(parameters, prompt, seed, image=None):
 
 
 def run(parameters, prompt, seed, output, progress, source=None):
+    progress('正在檢查模型與啟動 SuperDuper 服務…')
     ensure_comfy()
-    progress('正在載入 SuperDuper 工作流與局部細修 LoRA…')
+    progress('正在載入 SuperDuper 模型、生成圖片與局部細修…')
     with image_input(source) as image:
         graph = compile_workflow(parameters, prompt, seed, image)
         prompt_id = request_json('/prompt', {'prompt': graph}, 30)['prompt_id']
@@ -233,6 +234,7 @@ def run(parameters, prompt, seed, output, progress, source=None):
                     raise workflow_error('SuperDuper', status, graph)
                 images = history[prompt_id].get('outputs', {}).get('56', {}).get('images', [])
                 if images:
+                    progress('圖片生成完成，正在下載並儲存作品…')
                     image = images[-1]
                     query = urlencode({key: image[key] for key in ('filename', 'subfolder', 'type')})
                     with urlopen(URL + '/view?' + query, timeout=120) as response:

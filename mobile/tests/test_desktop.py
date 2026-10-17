@@ -53,7 +53,8 @@ class DesktopBridgeTest(unittest.TestCase):
         self.assertEqual(emit.call_args.args[0], {'name': 'svi_custom/registered/style.safetensors'})
 
     def test_cancel_bridge_targets_job_and_cancelled_generation_finishes(self):
-        job = dict(id='a' * 32, results=[], result_files=[], status='cancelled', message='任務已終止')
+        job = dict(id='a' * 32, results=[], result_files=[], status='cancelled', message='任務已終止',
+                   progress=dict(elapsed_seconds=30, running_seconds=20, estimated_seconds=None))
         for action, payload in [('cancel', {'job_id': job['id']}),
                                 ('generate', dict(prompt='cat', workflow='quick', images=[], request_id='c' * 32))]:
             with self.subTest(action=action), patch('mobile.desktop.StudioClient') as client_class, \
@@ -69,6 +70,8 @@ class DesktopBridgeTest(unittest.TestCase):
                 else:
                     self.assertEqual(client.request.call_args_list[0].args[1]['request_id'], payload['request_id'])
                     report = emit.call_args.args[0]
+                    self.assertEqual(report['progress'], job['progress'])
+                    self.assertEqual(report['status'], 'cancelled')
                     self.assertTrue(report['done'])
                     self.assertIsNone(report['error'])
                     self.assertEqual(report['jobId'], job['id'])

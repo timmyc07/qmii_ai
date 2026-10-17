@@ -272,7 +272,8 @@ function renderJob(job) {
 使用者（來源回報）：${origin.user || '未記錄'}
 設備識別碼：${origin.device_id || '未記錄'}
 任務編號：${job.id}${job.billing_status === 'pending' ? '\n點數確認中，連線恢復後自動重試。' : job.finished && job.billing_status === 'reserved' ? '\n點數結算待連線，自動重試中。' : ''}`;
-  const status = card.querySelector('.job-status'); status.textContent = job.message; status.classList.toggle('failed', job.status === 'failed');
+  const status = card.querySelector('.job-status'); status.classList.toggle('failed', job.status === 'failed');
+  window.qianmiProgress.render(status, job);
   if (job.id === currentJobId) {
     const active = ['queued', 'running', 'cancelling'].includes(job.status);
     $('cancel-generation').classList.toggle('hidden', !active);

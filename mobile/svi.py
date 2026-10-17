@@ -182,6 +182,7 @@ def stop_server(process):
 
 
 def run(parameters, seed, output, progress, source):
+    progress('正在檢查高耗能模型與可用生成資源…')
     ensure_models()
     try:
         validate_loras(parameters)
@@ -229,7 +230,7 @@ def run(parameters, seed, output, progress, source):
             else:
                 raise ComfyWorkflowError('高耗能服務啟動逾時，請查看 .runtime/svi_comfy.log。')
             progress('正在依序生成三段影片，請等候完成；可隨時強制終止。')
-            results = execute_video(value, output, 'SVI 三段影片', url=URL, log_path='.runtime/svi_comfy.log')
+            results = execute_video(value, output, 'SVI 三段影片', progress=progress, url=URL, log_path='.runtime/svi_comfy.log')
             progress('影片已儲存，正在釋放模型與快取…', results)
             return results
         finally:

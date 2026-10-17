@@ -123,6 +123,7 @@ def ensure_models(parameters=None):
 
 
 def run(parameters, prompt, seed, output, progress, source, last_source=None):
+    progress('正在檢查 H3 模型與準備首尾幀圖片…')
     ensure_models(parameters)
     with ExitStack() as stack:
         image = stack.enter_context(image_input(source))
@@ -134,11 +135,11 @@ def run(parameters, prompt, seed, output, progress, source, last_source=None):
                 raise ComfyWorkflowError('RefMod 尚未安裝，請執行 python -m tools.install_refmod。')
             progress('已啟用 RefMod，正在從本支影片首幀建立身分參考…')
         ensure_server({node['class_type'] for node in value.values()})
-        progress('正在將首幀生成影片…')
-        return execute_video(value, output, 'H3')
+        progress('正在載入 H3 模型與將首幀生成影片（含採樣、解碼與編碼）…')
+        return execute_video(value, output, 'H3', progress=progress)
 
 
-def execute_video(value, output, name, *, url=URL, log_path='.runtime/superduper.log'):
+def execute_video(value, output, name, *, progress=None, url=URL, log_path='.runtime/superduper.log'):
     try:
         prompt_id = request_json('/prompt', {'prompt': value}, 30, url=url)['prompt_id']
     except HTTPError:
@@ -154,6 +155,8 @@ def execute_video(value, output, name, *, url=URL, log_path='.runtime/superduper
                 if not files:
                     raise ComfyWorkflowError(f'{name} 未產生影片，請查看 {log_path}。')
                 query = urlencode({key: files[-1][key] for key in ('filename', 'subfolder', 'type')})
+                if progress:
+                    progress('影片編碼完成，正在下載並儲存作品…')
                 with urlopen(url + '/view?' + query, timeout=120) as response, output.open('wb') as target:
                     shutil.copyfileobj(response, target)
                 if not output.stat().st_size:

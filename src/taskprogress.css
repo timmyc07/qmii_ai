@@ -1,0 +1,8 @@
+.task-progress { display: block; min-width: 0; width: 100%; overflow-wrap: anywhere; }
+.task-heading { display: flex; align-items: flex-start; gap: .65rem; font-weight: 600; line-height: 1.6; }
+.task-spinner { flex: none; width: 1rem; height: 1rem; margin-top: .2rem; border: 2px solid #e7d9f3; border-top-color: #a486ca; border-radius: 50%; animation: task-spin .8s linear infinite; }
+.task-spinner[hidden] { display: none; }
+.task-timing { margin: .6rem 0 0; font-size: .86rem; font-variant-numeric: tabular-nums; line-height: 1.7; color: #604d76; }
+.task-hint { margin: .35rem 0 0; font-size: .78rem; line-height: 1.6; color: #756383; }
+@keyframes task-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .task-spinner { animation: none; } }

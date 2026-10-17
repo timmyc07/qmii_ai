@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
       response.setHeader('Content-Type', 'image/svg+xml');
       response.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="240"><rect width="160" height="240" fill="#dbcdf4"/><circle cx="110" cy="65" r="25" fill="#fff0c5"/><path d="M0 180L55 100L160 230V240H0" fill="#a59bc9"/></svg>'); return;
     }
-    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css', '/membership.js': 'membership.js', '/membership.css': 'membership.css' }[request.url];
+    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css', '/membership.js': 'membership.js', '/membership.css': 'membership.css', '/taskprogress.js': 'taskprogress.js', '/taskprogress.css': 'taskprogress.css' }[request.url];
     if (!file) { response.writeHead(404).end(); return; }
     response.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8');
     response.end(fs.readFileSync(path.join(source, file)));
@@ -213,8 +213,27 @@ const { chromium } = require('playwright');
     assert.equal(await page.locator('#video-results-h3_image .user-message img').count(), 1);
     assert.equal(await page.locator('#cancel-generation').isVisible(), true);
     assert.equal(await page.locator('#cancel-generation').isEnabled(), true);
+    await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1,
+      status: 'running', message: '正在載入 <模型> 與生成影片', done: false,
+      progress: { elapsed_seconds: 65, running_seconds: 60, estimated_seconds: 180, sample_count: 3, completed: 0, total: 1 } } }));
+    const progressCard = page.locator('#video-results-h3_image .progress-card');
+    assert.match(await progressCard.innerText(), /目前階段：正在載入 <模型>/);
+    assert.match(await progressCard.innerText(), /預計剩餘約 2 分/);
+    assert.equal(await progressCard.locator('模型').count(), 0);
+    await page.evaluate(() => { setCreationOpen(false); setSidebarCollapsed(true); });
+    for (const width of [1280, 390, 360]) {
+      await page.setViewportSize({ width, height: 820 });
+      await page.waitForTimeout(350);
+      assert.equal(await progressCard.evaluate(element => element.scrollWidth <= element.clientWidth), true);
+      await page.screenshot({ path: path.join(__dirname, `../.runtime/task-progress-${width}.png`), fullPage: true, animations: 'disabled' });
+    }
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.evaluate(() => { setSidebarCollapsed(false); setCreationOpen(true); });
+    await page.evaluate(() => { document.querySelector('#video-results-h3_image .progress-card').taskProgress.received -= 20000; });
+    await page.waitForFunction(() => document.querySelector('.progress-card').textContent.includes('未收到主機更新'));
+    assert.doesNotMatch(await progressCard.innerText(), /預計剩餘約/);
     await page.click('#cancel-generation');
-    assert.equal(await page.evaluate(() => window.testMobile.cancelled), 'b'.repeat(32));
+    assert.equal(await page.evaluate(() => window.testMobile.cancelled), 'a'.repeat(32));
     assert.equal(await page.locator('#cancel-generation').isDisabled(), true);
     await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1, message: '正在生成', done: false } }));
     await page.waitForFunction(() => window.testMobile.cancelled === 'a'.repeat(32));

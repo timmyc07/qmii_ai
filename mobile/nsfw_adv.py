@@ -64,8 +64,9 @@ def graph(parameters, prompt, seed, image=None):
 
 
 def run(parameters, prompt, seed, output, progress, source=None):
+    progress('正在檢查模型與啟動 NSFW Adv 服務…')
     ensure_comfy()
-    progress('正在載入 NSFW Adv 群組（LoKr + Lightning + RES4LYF）…')
+    progress('正在載入 NSFW Adv 模型與生成圖片（LoKr + Lightning + RES4LYF）…')
     with image_input(source) as image:
         prompt_id = request_json('/prompt', {'prompt': graph(parameters, prompt, seed, image)}, 30)['prompt_id']
         for _ in range(7200):
@@ -76,6 +77,7 @@ def run(parameters, prompt, seed, output, progress, source=None):
                     raise RuntimeError('NSFW Adv 群組執行失敗，請查看 .runtime/superduper.log。')
                 images = history[prompt_id].get('outputs', {}).get('12', {}).get('images', [])
                 if images:
+                    progress('圖片生成完成，正在下載並儲存作品…')
                     image = images[-1]
                     query = urlencode({key: image[key] for key in ('filename', 'subfolder', 'type')})
                     with urlopen(URL + '/view?' + query, timeout=120) as response:

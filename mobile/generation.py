@@ -69,22 +69,24 @@ def generate(payload, sources, output_dir, progress):
             return results
 
         if workflow == 'reference':
-            progress(f'正在融合 {len(sources)} 張參考圖片…')
+            progress(f'正在載入模型並融合 {len(sources)} 張參考圖片…')
             output = output_dir / '0.png'
             labels = '、'.join(f'<image{i}>' for i in range(1, len(sources) + 1))
             prompt = (f'請根據以下參考圖片重新創作一張全新的單一圖片。參考圖片依序標記為 {labels}。'
                       '請依照使用者提示詞，參考圖片中的主體、風格、材質、色彩或構圖來重新生成；'
                       f'不要把參考圖片直接拼貼、排列、重疊或顯示在輸出中。使用者提示詞：\n{prompt}')
             run_turbo(prompt, sources, output, new_seed(), params)
+            progress('正在檢查並儲存融合後的圖片…')
             clean_output(output)
             progress('多圖參考生成完成', ['0.png'])
             return ['0.png']
 
         results = []
         for index, source in enumerate(sources or [None]):
-            progress(f'正在生成第 {index + 1}/{max(1, len(sources))} 張…')
+            progress(f'第 {index + 1}/{max(1, len(sources))} 張：正在載入模型與生成圖片…')
             output = output_dir / f'{index}.png'
             run_turbo(prompt, [source] if source else [], output, new_seed(index), params)
+            progress(f'第 {index + 1}/{max(1, len(sources))} 張：正在檢查並儲存圖片…')
             clean_output(output)
             results.append(output.name)
             progress(f'已完成 {index + 1}/{max(1, len(sources))} 張', list(results))

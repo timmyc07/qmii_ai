@@ -227,7 +227,8 @@ function renderSharedJob(job, cancelling = false) {
   const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper 群組', nsfw_adv: 'NSFW Adv 群組', h3_image: '圖片生影片', svi_image: '高耗能圖片轉影片模式' };
   const endLabel = job.status === 'cancelled' ? '終止' : job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
-    <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span>${['queued', 'running', 'cancelling'].includes(job.status) ? `<button type="button" class="cancel-button" data-cancel-job="${escapeHtml(job.id)}"${cancelling || job.status === 'cancelling' ? ' disabled' : ''}>${cancelling || job.status === 'cancelling' ? '終止中…' : '■ 強制終止'}</button>` : ''}</div>
+    <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b>${['queued', 'running', 'cancelling'].includes(job.status) ? `<button type="button" class="cancel-button" data-cancel-job="${escapeHtml(job.id)}"${cancelling || job.status === 'cancelling' ? ' disabled' : ''}>${cancelling || job.status === 'cancelling' ? '終止中…' : '■ 強制終止'}</button>` : ''}</div>
+    <div class="shared-task-progress"></div>
     <p class="job-meta">提交：${escapeHtml(jobTime(job.created))}<br>開始：${escapeHtml(job.started ? jobTime(job.started) : '尚未開始／未記錄')} · ${endLabel}：${escapeHtml(job.finished ? jobTime(job.finished) : '尚未結束／未記錄')}${job.billing_status === 'pending' ? '<br>點數確認中，連線恢復後自動重試。' : job.finished && job.billing_status === 'reserved' ? '<br>點數結算待連線，自動重試中。' : ''}</p>
     <dl class="job-origin"><dt>平台</dt><dd>${escapeHtml(origin.platform || '未記錄')}</dd><dt>設備</dt><dd>${escapeHtml(origin.device || '未記錄')}</dd><dt>使用者（來源回報）</dt><dd>${escapeHtml(origin.user || '未記錄')}</dd><dt>設備識別碼</dt><dd>${escapeHtml(origin.device_id || '未記錄')}</dd><dt>任務編號</dt><dd>${escapeHtml(job.id)}</dd></dl>
     <p class="job-meta">參數：${escapeHtml(JSON.stringify(parameters))}</p><details data-job="${escapeHtml(job.id)}"><summary>查看${job.workflow === 'h3_image' ? '完整提示詞' : '正向／負面提示詞'}</summary><b>正向提示詞</b><p class="job-prompt">${escapeHtml(job.prompt || '此舊任務未保留提示詞。')}</p>${job.workflow === 'h3_image' ? '' : `<b>負面提示詞</b><p class="job-prompt">${escapeHtml(negative || '未填寫')}</p>`}</details>
@@ -727,13 +728,16 @@ async function submitPrompt() {
   $('welcome').classList.add('hidden');
   const target = currentFeed();
   appendUserMessage(finalPrompt, lastImage ? [...images, lastImage] : images);
-  const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.innerHTML = '<span class="spinner"></span><span>正在準備模型…</span>'; target.appendChild(progress);
+  const progress = document.createElement('div'); progress.className = 'message progress-card'; target.appendChild(progress);
+  state.progressJob = { status: 'uploading', message: '正在連線工作室與上傳圖片…', progress: { elapsed_seconds: 0 } };
+  window.qianmiProgress.render(progress, state.progressJob);
   state.resultTarget = target; state.currentProgress = progress; promptInput.value = ''; resizePrompt();
   if (svi) { $('svi-prompt-2').value = ''; $('svi-prompt-3').value = ''; resizePrompt(); }
   if (!video) state.images = [];
   renderImageTray(); setBusy(true); scrollFeed(true);
   try { await invoke('generate_images', { prompt: finalPrompt, images, lastImage, workflow, parameters, preciseMode, requestId: state.pendingGeneration.id }); }
   catch (e) {
+    progress.removeAttribute('data-task-progress');
     progress.className = 'message error-card'; progress.textContent = `工作連線中斷：${e}。可在共用任務查看，原內容重試沿用同一筆請求。`;
     if (!promptInput.value) promptInput.value = svi ? segments[0] : finalPrompt;
     if (svi) { if (!$('svi-prompt-2').value) $('svi-prompt-2').value = segments[1]; if (!$('svi-prompt-3').value) $('svi-prompt-3').value = segments[2]; }
@@ -811,13 +815,13 @@ listen('generation-progress', event => {
   if (state.currentProgress) {
     if (data.done) {
       state.pendingGeneration = null;
-      state.currentProgress.className = 'message assistant-label'; state.currentProgress.textContent = `♡ ${data.message}${data.billingStatus === 'reserved' ? ' 點數結算待連線，自動重試中。' : ''}`;
+      state.currentProgress.className = 'message assistant-label task-progress';
       setBusy(false); toast(data.message);
-    } else if (!result && !data.error) {
-      state.currentProgress.innerHTML = `<span class="spinner"></span><span>${escapeHtml(data.message)}</span>`;
-    } else {
-      state.currentProgress.innerHTML = `<span class="spinner"></span><span>${escapeHtml(data.message || `已完成 ${data.index}/${data.total} 個輸出…`)}</span>`;
     }
+    state.progressJob = { ...state.progressJob, status: data.status || (data.done ? (data.error ? 'failed' : 'completed') : 'running'),
+      message: data.message || `已完成 ${data.index}/${data.total} 個輸出…`, billing_status: data.billingStatus,
+      progress: data.progress || { ...state.progressJob.progress, completed: data.index, total: data.total } };
+    window.qianmiProgress.render(state.currentProgress, state.progressJob);
   }
   if (target === currentFeed()) scrollFeed();
 });
@@ -842,6 +846,7 @@ async function init() {
         if (closed || !list) return;
         const expanded = new Set([...list.querySelectorAll('details[open]')].map(node => node.dataset.job));
         list.innerHTML = jobs.length ? [...jobs].reverse().map(job => renderSharedJob(job, cancelling.has(job.id))).join('') : '目前沒有任務。';
+        list.querySelectorAll('.shared-task-progress').forEach((element, index) => window.qianmiProgress.render(element, jobs[jobs.length - 1 - index]));
         list.querySelectorAll('details').forEach(node => { node.open = expanded.has(node.dataset.job); });
         clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 5000);
       } catch (error) { const list = $('shared-job-list'); if (list && !closed) { list.textContent = String(error); refreshTimer = setTimeout(refresh, 5000); } }

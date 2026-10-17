@@ -218,8 +218,7 @@ button:disabled { cursor: wait; opacity: .6; }
 .assistant-label { font-size: .9rem; font-weight: 800; color: #80699a; margin: 0 0 .65rem .25rem; }
 .result-image { max-width: min(100%, 34rem); max-height: min(55dvh, 38rem); object-fit: contain; border-radius: 1.5rem; border: .3rem solid #f7f1fb; box-shadow: 0 12px 32px #70578b16; display: block; animation: pop-in .4s; }
 .result-path { font-size: .8rem; color: #8d789d; margin-top: .6rem; overflow-wrap: anywhere; }
-.progress-card { display: flex; align-items: center; gap: .75rem; border: 1px solid #eae0f2; border-radius: 1.25rem; padding: .9rem 1rem; background: #fdfaff; color: #766885; font-size: .95rem; }
-.spinner { width: 1.2rem; height: 1.2rem; border: 2px solid #e7d9f3; border-top-color: #a486ca; border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+.progress-card { border: 1px solid #eae0f2; border-radius: 1.25rem; padding: .9rem 1rem; background: #fdfaff; color: #766885; font-size: .95rem; }
 .error-card { padding: .9rem 1rem; border-radius: 1.2rem; background: #fff2f2; border: 1px solid #f4dddd; color: #a65764; font-size: .9rem; white-space: pre-wrap; line-height: 1.6; }
 
 .composer-area { min-width: 0; padding: .5rem clamp(.7rem, 1.8vw, 1.8rem) .85rem; background: #fff; }
@@ -383,7 +382,6 @@ button:disabled { cursor: wait; opacity: .6; }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-5px) rotate(2deg); } }
-@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes twinkle { 0%, 100% { transform: rotate(0) scale(1); } 50% { transform: rotate(18deg) scale(1.17); } }
 @keyframes morph { 0%, 100% { border-radius: 42% 58% 53% 47%; transform: rotate(-15deg); } 50% { border-radius: 57% 43% 43% 57%; transform: rotate(8deg); } }
 

@@ -7,7 +7,7 @@ const { chromium } = require('playwright');
 (async () => {
   const source = path.join(__dirname, '..', 'src');
   const server = http.createServer((request, response) => {
-    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css', '/membership.js': 'membership.js', '/membership.css': 'membership.css' }[request.url];
+    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css', '/membership.js': 'membership.js', '/membership.css': 'membership.css', '/taskprogress.js': 'taskprogress.js', '/taskprogress.css': 'taskprogress.css' }[request.url];
     if (!file) return response.writeHead(404).end();
     response.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8');
     response.end(fs.readFileSync(path.join(source, file)));

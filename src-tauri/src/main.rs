@@ -48,6 +48,9 @@ struct Settings {
 #[serde(rename_all = "camelCase")]
 struct Progress {
     job_id: Option<String>,
+    status: Option<String>,
+    progress: Option<serde_json::Value>,
+    billing_status: Option<String>,
     index: usize,
     total: usize,
     message: String,
@@ -348,7 +351,21 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Preset, Settings};
+    use super::{Preset, Progress, Settings};
+
+    #[test]
+    fn generation_progress_preserves_timing_and_status() {
+        let progress: Progress = serde_json::from_value(serde_json::json!({
+            "jobId": "task", "index": 0, "total": 1, "message": "正在生成", "done": false,
+            "status": "running", "billingStatus": "reserved",
+            "progress": {"elapsed_seconds": 30, "estimated_seconds": 120}
+        }))
+        .unwrap();
+        let value = serde_json::to_value(progress).unwrap();
+        assert_eq!(value["status"], "running");
+        assert_eq!(value["billingStatus"], "reserved");
+        assert_eq!(value["progress"]["estimated_seconds"], 120);
+    }
 
     #[test]
     fn preset_preserves_separate_negative_prompt() {

@@ -46,7 +46,7 @@ const { chromium } = require('playwright');
       }); return;
     }
     const file = request.url === '/' ? 'index.html' : request.url.replace('/static/', '');
-    const shared = ['membership.js', 'membership.css'].includes(file);
+    const shared = ['membership.js', 'membership.css', 'taskprogress.js', 'taskprogress.css'].includes(file);
     const target = path.join(shared ? path.join(__dirname, '..', 'src') : root, file);
     if ((!shared && !target.startsWith(root)) || !fs.existsSync(target)) return response.writeHead(404).end();
     response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8');
@@ -155,7 +155,36 @@ const { chromium } = require('playwright');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.equal(await page.locator('#negative-prompt').isVisible(), true);
     }
-    console.log('Mobile studio UI passed: Turbo, ComfyUI groups, and precise mode.');
+    await page.evaluate(() => {
+      window.progressFixture = { id: 'f'.repeat(32), workflow: 'quick', parameters: {}, prompt: '進度測試', sources: [],
+        results: [], result_files: [], status: 'queued', message: '已排隊',
+        progress: { elapsed_seconds: 10, queue_position: 3, completed: 0, total: 1 } };
+      renderJob(window.progressFixture);
+    });
+    const progressStatus = page.locator('.job-status').last();
+    assert.match(await progressStatus.innerText(), /排隊第 3 位（前方 2 個任務）/);
+    await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running', message: '正在載入模型…' }));
+    assert.match(await progressStatus.innerText(), /暫無法估算/);
+    await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running', message: '正在生成圖片…',
+      progress: { elapsed_seconds: 85, running_seconds: 80, estimated_seconds: 180, sample_count: 2, completed: 0, total: 1 } }));
+    assert.match(await progressStatus.innerText(), /預計剩餘約/);
+    for (const width of [1280, 390, 360]) {
+      await page.setViewportSize({ width, height: 820 });
+      await progressStatus.scrollIntoViewIfNeeded();
+      assert.equal(await progressStatus.evaluate(element => element.scrollWidth <= element.clientWidth), true);
+      await page.screenshot({ path: path.join(__dirname, `../.runtime/mobile-task-progress-${width}.png`), fullPage: true, animations: 'disabled' });
+    }
+    await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running',
+      progress: { elapsed_seconds: 200, running_seconds: 190, estimated_seconds: 180, sample_count: 2 } }));
+    assert.match(await progressStatus.innerText(), /已超過歷史估時/);
+    await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'completed', message: '圖片完成',
+      progress: { elapsed_seconds: 200, completed: 1, total: 1 } }));
+    assert.equal(await progressStatus.locator('.task-spinner').isVisible(), false);
+    const finishedText = await progressStatus.innerText();
+    await progressStatus.evaluate(element => { element.taskProgress.received -= 20000; });
+    await page.waitForTimeout(1100);
+    assert.equal(await progressStatus.innerText(), finishedText);
+    console.log('Mobile studio UI passed: workflows, progress, ETA, queue, terminal timing and responsive layout.');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));
