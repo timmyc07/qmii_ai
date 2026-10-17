@@ -10,12 +10,17 @@ window.qianmiProgress = (() => {
   };
   function tick(element) {
     const { job, received } = element.taskProgress;
-    const progress = job.progress || {}, live = active(job.status);
+    const progress = job.progress || {}, live = active(job.status), sampling = job.status === 'running' ? progress.sampling : null;
     const since = (performance.now() - received) / 1000;
     const delta = live ? since : 0;
     const elapsed = (progress.elapsed_seconds || 0) + delta;
     const details = [progress.elapsed_seconds == null ? '耗時尚未記錄' : `${job.status === 'queued' ? '已等待' : '已耗時'} ${duration(elapsed)}`];
     if (progress.total) details.push(`已完成 ${progress.completed}/${progress.total} 個輸出`);
+    const sampleText = element.querySelector('.task-sampling'), meter = element.querySelector('.task-meter');
+    const sampleTitle = sampling?.total ? `${sampling.label}：第 ${sampling.step} / ${sampling.total} 步` : '';
+    if (sampleText.textContent !== sampleTitle) sampleText.textContent = sampleTitle;
+    sampleText.hidden = meter.hidden = !sampleTitle;
+    if (sampleTitle) { meter.max = sampling.total; meter.value = sampling.step; meter.setAttribute('aria-label', sampleTitle); }
     let hint = '';
     if (live && since >= 15) {
       hint = `已 ${duration(since)}未收到主機更新，正在等待回應；請勿重複提交，可在共用任務確認狀態。`;
@@ -25,7 +30,23 @@ window.qianmiProgress = (() => {
     } else if (job.status === 'cancelling') {
       hint = '正在等待模型確認停止，已完成的作品會保留。';
     } else if (job.status === 'running') {
-      if (progress.estimated_seconds != null && progress.running_seconds != null) {
+      if (sampling) {
+        const age = (sampling.age_seconds || 0) + delta;
+        if (sampling.state === 'disconnected') {
+          hint = '即時採樣連線中斷，正在重新連線；生成任務仍由主機管理。';
+        } else if (sampling.state === 'complete' || sampling.state === 'paused') {
+          details.push(sampling.state === 'complete' ? '本輪採樣完成，等待後續處理' : '採樣階段已切換，等待後續回報');
+        } else if (age > Math.max(60, (sampling.seconds_per_step || 0) * 3)) {
+          hint = '尚未收到新的採樣步數，正在等待引擎回報。';
+        } else if (sampling.remaining_seconds != null) {
+          const remaining = sampling.remaining_seconds - age;
+          details.push(`每步約 ${sampling.seconds_per_step.toFixed(2)} 秒`);
+          details.push(remaining > 0 ? `本輪採樣預計剩餘約 ${duration(remaining)}` : '正在等待下一步採樣回報');
+        } else {
+          details.push('採樣速度估算中…');
+        }
+        hint ||= '依本輪實際採樣速度更新；不含其他採樣輪次、解碼與存檔時間。';
+      } else if (progress.estimated_seconds != null && progress.running_seconds != null) {
         const remaining = progress.estimated_seconds - progress.running_seconds - delta;
         details.push(remaining > 0 ? `預計剩餘約 ${duration(remaining)}` : '已超過歷史估時，仍在處理');
         hint = `依本機最近 ${progress.sample_count} 次相同設定的成功紀錄估算；模型載入與內容會影響實際時間。`;
@@ -46,7 +67,7 @@ window.qianmiProgress = (() => {
     if (!element.hasAttribute('data-task-progress')) {
       element.setAttribute('data-task-progress', '');
       element.classList.add('task-progress');
-      element.innerHTML = '<div class="task-heading"><span class="task-spinner" aria-hidden="true"></span><span class="task-stage" role="status"></span></div><p class="task-timing" aria-live="off"></p><p class="task-hint" aria-live="off"></p>';
+      element.innerHTML = '<div class="task-heading"><span class="task-spinner" aria-hidden="true"></span><span class="task-stage" role="status"></span></div><p class="task-sampling" role="status" hidden></p><progress class="task-meter" hidden></progress><p class="task-timing" aria-live="off"></p><p class="task-hint" aria-live="off"></p>';
     }
     element.taskProgress = { job, received: performance.now() };
     const title = `${active(job.status) ? '目前階段：' : ''}${job.message}`;

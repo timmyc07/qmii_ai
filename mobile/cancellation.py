@@ -17,10 +17,12 @@ class CancellationFailed(RuntimeError):
 
 
 class TaskControl:
-    def __init__(self):
+    def __init__(self, sampling=None):
         self.cancelled = threading.Event()
         self.prompt_id = None
         self.comfy_url = None
+        self.sampling = sampling
+        self.listener = None
 
     def check(self):
         if self.cancelled.is_set():
@@ -54,7 +56,11 @@ def task_scope(control):
     finally:
         CURRENT.reset(token)
         if control:
-            control.finish()
+            try:
+                control.finish()
+            finally:
+                if control.listener:
+                    control.listener.close()
 
 
 def run_process(args, cwd, timeout, creationflags):
@@ -64,17 +70,45 @@ def run_process(args, cwd, timeout, creationflags):
     control.check()
     process = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags)
     deadline = time.monotonic() + timeout
+    stdout, stderr, errors = [], [], []
+    if control.sampling:
+        control.sampling.reset()
+
+    def read(stream, chunks):
+        from .sampling import CliProgress
+        parser = CliProgress(control.sampling) if control.sampling else None
+        try:
+            while chunk := stream.read1(4096):
+                chunks.append(chunk)
+                if parser:
+                    parser.feed(chunk)
+        except OSError as exc:
+            errors.append(exc)
+
+    readers = [threading.Thread(target=read, args=(stream, chunks), daemon=True)
+               for stream, chunks in [(process.stdout, stdout), (process.stderr, stderr)]]
+    for reader in readers:
+        reader.start()
     try:
         while True:
             control.check()
+            if errors:
+                raise RuntimeError('無法讀取生成引擎的進度輸出。') from None
             try:
-                stdout, stderr = process.communicate(timeout=.25)
+                process.wait(timeout=.25)
                 control.check()
-                return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+                break
             except subprocess.TimeoutExpired:
                 if time.monotonic() >= deadline:
                     raise subprocess.TimeoutExpired(args, timeout) from None
     finally:
         if process.poll() is None:
             process.kill()
-        process.communicate()
+        process.wait()
+        for reader in readers:
+            reader.join()
+        process.stdout.close()
+        process.stderr.close()
+    if control.sampling:
+        control.sampling.idle()
+    return subprocess.CompletedProcess(args, process.returncode, b''.join(stdout), b''.join(stderr))

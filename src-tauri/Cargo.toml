@@ -1,6 +1,6 @@
 [package]
 name = "qianmi-ai"
-version = "0.19.0"
+version = "0.20.0"
 description = "千迷AI 本機圖片創作工作室"
 authors = ["Qianmi AI"]
 edition = "2021"

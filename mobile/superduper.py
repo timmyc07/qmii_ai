@@ -70,6 +70,13 @@ def request_json(path, payload=None, timeout=10, *, url=URL):
             control.prompt_id = str(uuid.uuid4())
             control.comfy_url = url
             payload = {**payload, 'prompt_id': control.prompt_id}
+            if control.sampling:
+                from .sampling import ComfyProgress
+                if control.listener:
+                    control.listener.close()
+                control.listener = ComfyProgress(control.sampling, control.prompt_id, payload['prompt'], url)
+                payload['client_id'] = control.prompt_id
+                control.check()
     data = json.dumps(payload).encode() if payload is not None else None
     request = Request(url + path, data=data, headers={'Content-Type': 'application/json'})
     with urlopen(request, timeout=timeout) as response:

@@ -34,6 +34,7 @@ from .recipes import RecipeInput, Recipes
 from .membership import Members, install_membership
 from .accounts import MongoAccounts
 from .points import fingerprint
+from .sampling import SamplingProgress
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -96,6 +97,7 @@ async def parse_json(request, model, limit=40_000):
 
 class Store:
     def __init__(self, state, output, accounts=None):
+        self.live_sampling = {}
         self.state, self.output = Path(state), Path(output)
         self.state.mkdir(parents=True, exist_ok=True)
         self.output.mkdir(parents=True, exist_ok=True)
@@ -284,6 +286,7 @@ class Store:
 
     def job_progress(self, row):
         now = time.time()
+        sampling = self.live_sampling.get(row['id'])
         active = row['status'] in ('queued', 'running', 'cancelling')
         total = 1 if row['workflow'] in ('reference', 'svi_image') else max(1, len(json.loads(row['sources'])))
         estimate, samples, position = None, [], None
@@ -314,7 +317,8 @@ class Store:
         return dict(elapsed_seconds=max(0, end - row['created']) if row['created'] is not None else None,
                     running_seconds=max(0, end - row['started']) if row['started'] is not None else None,
                     estimated_seconds=estimate, sample_count=len(samples), queue_position=position,
-                    completed=len(json.loads(row['results'])), total=total)
+                    completed=len(json.loads(row['results'])), total=total,
+                    sampling=sampling.snapshot() if active and sampling else None)
 
     def public_job(self, row):
         sources = json.loads(row['sources'])
@@ -418,7 +422,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                             store.update(row['id'], 'cancelled', '會員帳號已停用，任務已取消，未完成輸出將退點。')
                             continue
                 if row:
-                    control = controls[row['id']] = TaskControl()
+                    sampling = store.live_sampling[row['id']] = SamplingProgress()
+                    control = controls[row['id']] = TaskControl(sampling)
                     store.update(row['id'], 'running', '正在準備電腦…')
             if not row:
                 if time.monotonic() - last_cleanup > 3600:
@@ -480,6 +485,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             finally:
                 with control_lock:
                     controls.pop(job_id, None)
+                    store.live_sampling.pop(job_id, None)
                 if output.is_dir() and not any(output.iterdir()):
                     output.rmdir()
             try:

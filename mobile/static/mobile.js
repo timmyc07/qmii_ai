@@ -314,7 +314,7 @@ async function refresh() {
     }
     $('welcome').classList.toggle('hidden', jobs.length > 0);
     $('welcome').querySelector('p').textContent = '寫下想法，或上傳圖片開始改造。';
-    if (csrf) timer = setTimeout(refresh, jobs.some(job => ['queued', 'running', 'cancelling'].includes(job.status)) ? 2000 : 10000);
+    if (csrf) timer = setTimeout(refresh, jobs.some(job => ['queued', 'running', 'cancelling'].includes(job.status)) ? 1000 : 10000);
   } catch (error) {
     if (csrf) { $('connection').textContent = '○ 主機離線或連線中斷，正在重新連線…'; timer = setTimeout(refresh, 5000); }
   }

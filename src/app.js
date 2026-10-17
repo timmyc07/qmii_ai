@@ -848,7 +848,7 @@ async function init() {
         list.innerHTML = jobs.length ? [...jobs].reverse().map(job => renderSharedJob(job, cancelling.has(job.id))).join('') : '目前沒有任務。';
         list.querySelectorAll('.shared-task-progress').forEach((element, index) => window.qianmiProgress.render(element, jobs[jobs.length - 1 - index]));
         list.querySelectorAll('details').forEach(node => { node.open = expanded.has(node.dataset.job); });
-        clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 5000);
+        clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, jobs.some(job => ['queued', 'running', 'cancelling'].includes(job.status)) ? 1000 : 5000);
       } catch (error) { const list = $('shared-job-list'); if (list && !closed) { list.textContent = String(error); refreshTimer = setTimeout(refresh, 5000); } }
     };
     $('shared-job-list').onclick = async event => {

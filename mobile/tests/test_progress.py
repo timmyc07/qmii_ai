@@ -7,6 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from mobile.tests.support import Store, create_app
+from mobile.sampling import SamplingProgress
 
 
 class ProgressTest(unittest.TestCase):
@@ -37,7 +38,7 @@ class ProgressTest(unittest.TestCase):
         with patch('mobile.server.time.time', return_value=50):
             progress = self.store.public_job(row)['progress']
         self.assertEqual(progress, dict(elapsed_seconds=40, running_seconds=30,
-                                      estimated_seconds=100, sample_count=3, queue_position=None, completed=0, total=1))
+                                      estimated_seconds=100, sample_count=3, queue_position=None, completed=0, total=1, sampling=None))
         self.assertNotIn('private', json.dumps(progress))
 
     def test_queue_position_elapsed_and_terminal_clocks(self):
@@ -84,3 +85,16 @@ class ProgressTest(unittest.TestCase):
         with TestClient(app, base_url='http://localhost:8787') as client:
             self.assertIn('qianmiProgress', client.get('/static/taskprogress.js').text)
             self.assertIn('task-progress', client.get('/static/taskprogress.css').text)
+
+    def test_live_sampling_is_scoped_to_active_job_and_not_returned_for_finished_jobs(self):
+        row = self.job('a')
+        other = self.job('b')
+        sampling = self.store.live_sampling[row['id']] = SamplingProgress()
+        sampling.update('sample', 2, 8, seconds=3)
+        progress = self.store.public_job(row)['progress']['sampling']
+        self.assertEqual((progress['step'], progress['total']), (2, 8))
+        self.assertEqual(progress['remaining_seconds'], 18)
+        self.assertIsNone(self.store.public_job(other)['progress']['sampling'])
+        with self.store.connect() as db:
+            db.execute("UPDATE jobs SET status='completed',finished=100 WHERE id=?", (row['id'],))
+        self.assertIsNone(self.store.public_job(self.store.job(row['id']))['progress']['sampling'])
