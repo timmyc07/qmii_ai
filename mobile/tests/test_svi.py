@@ -17,7 +17,7 @@ from mobile import svi
 from mobile.cancellation import CURRENT, CancellationFailed, GenerationCancelled, TaskControl, task_scope
 from mobile.generation import generate
 from mobile.parameters import validate_parameters
-from mobile.server import create_app
+from mobile.tests.support import create_app
 from tools.install_svi import prepare_lightning
 
 

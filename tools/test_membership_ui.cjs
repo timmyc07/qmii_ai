@@ -16,7 +16,7 @@ const { chromium } = require('playwright');
   await new Promise(resolve => listener.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
   const service = spawn(path.join(runtime, 'mobile-venv', 'Scripts', 'python.exe'), ['-X', 'utf8', '-c',
-    `import sys; from pathlib import Path; import uvicorn; from mobile.server import create_app; p=Path(sys.argv[1]); uvicorn.run(create_app(p/'state',p/'output',runner=lambda *args: [],settings_path=p/'settings.json'),host='127.0.0.1',port=int(sys.argv[2]),log_level='error')`, fixture, String(port)],
+    `import sys; from pathlib import Path; import uvicorn; from mobile.tests.support import create_app; p=Path(sys.argv[1]); uvicorn.run(create_app(p/'state',p/'output',runner=lambda *args: [],settings_path=p/'settings.json'),host='127.0.0.1',port=int(sys.argv[2]),log_level='error')`, fixture, String(port)],
   { cwd: root, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
   let logs = '', browser, page;
   service.stderr.on('data', data => { logs += data; });

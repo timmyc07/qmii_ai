@@ -14,7 +14,7 @@ from PIL import Image
 
 from mobile.cancellation import CancellationFailed, GenerationCancelled, TaskControl, run_process, task_scope
 from mobile.gpu import gpu_lock
-from mobile.server import create_app
+from mobile.tests.support import create_app
 
 
 class CancellationTest(unittest.TestCase):

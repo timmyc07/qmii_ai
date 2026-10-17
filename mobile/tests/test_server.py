@@ -11,7 +11,7 @@ import unittest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from mobile.server import Store, create_app
+from mobile.tests.support import Store, create_app
 
 ORIGIN = {'Origin': 'http://localhost:8787'}
 

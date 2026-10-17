@@ -1,6 +1,8 @@
 # 會員與點數
 
-0.16.0 的桌面及手機共用會員中心、會員管理與伺服器端計點。外部資料庫尚未串接；開發與單機驗證暫時沿用 `.runtime/mobile/mobile.sqlite3`，不需要新增 `.env`。
+0.17.0 的桌面及手機共用會員中心、會員管理與伺服器端計點。帳號與使用者資訊以 MongoDB Atlas 為準；本機 SQLite 保留生成佇列、點數交易及工作階段。
+
+主機的專案根目錄 `.env` 只需要 `MONGODB_URI`。URI 已包含驗證資料，無需重複存放 username／password；費率與註冊開關仍由管理後台設定。URI 未指定資料庫時使用專案專屬 `qianmi_ai`。`.env` 已由 Git 忽略，不能提供給一般會員或打包進 EXE。
 
 ## 第一次使用
 
@@ -31,7 +33,15 @@ scrypt 採 N=32768、r=8、p=3，依照 [OWASP 密碼儲存指南](https://cheat
 
 桌面登入 cookie 保存於 `.runtime/mobile/desktop-session.cookies`，密碼不落盤；此檔及同目錄的主機連線碼都必須以作業系統帳號權限保護。帳號、點數流水、稽核紀錄及所有 `.runtime` 狀態皆不得提交 Git。帳號採停用方式保留點數與稽核紀錄，不提供刪除流水功能。
 
-## 後續資料庫串接接口
+## MongoDB 與本機資料邊界
+
+MongoDB 的 `members` 保存會員 ID、電子郵件、名稱、scrypt 密碼雜湊、角色、啟用狀態、加入／更新／最近登入時間、工作階段版本及單次密碼重設碼雜湊。電子郵件有唯一索引；`account_state` 的交易鎖避免首次管理員重複建立及併發移除最後一位管理員。改密碼、角色或停用時增加帳號版本，每次會員 API 都向 MongoDB 檢查版本，其他主機也會拒絕舊登入。
+
+首次升級會先建立 `.runtime/mobile/members-before-mongodb.sqlite3` 備份，再將舊 `members` 帳號移至 Atlas，保留 ID 與密碼雜湊。確認雲端交易成功後，餘額移至本機 `member_wallets`，再移除舊 SQLite 帳號表。重試不覆寫既有雲端帳號；若信箱衝突或資料庫不可用，升級會停止並保留舊帳號表。切換前先安全停止舊服務，不能讓新舊版本同時操作同一份本機資料。
+
+本機 `member_wallets`、`point_ledger` 與 `jobs` 仍共用 SQLite 交易，保持預扣及退點原子性。`sessions`、`uploads`、費率、註冊開關與稽核也留在本機；跨主機帳號可登入，但點數和歷史仍依各主機保存，不能當作跨主機共用錢包。退點不依賴 MongoDB 即時可用；新登入、生成與會員操作在 Atlas 斷線時回傳 503，排隊任務等待連線恢復，不回退到舊帳號儲存。
+
+連線使用官方 PyMongo、TLS 與憑證驗證；服務只記錄例外類型，API 不回傳 URI、密碼或資料庫錯誤原文。URI 由主機環境變數或專案 `.env` 載入，不執行檔案中的 shell 指令。
 
 網路接口仍使用現有 8787 port，不另開資料庫埠。桌面透過 `membership` Tauri 指令與 `mobile.desktop.membership_action()` 固定路由表呼叫同一組 API：
 
@@ -48,16 +58,17 @@ scrypt 採 N=32768、r=8、p=3，依照 [OWASP 密碼儲存指南](https://cheat
 | `GET /api/admin/audit?offset=0` | 帳號操作與點數流水，各 100 筆 |
 | `PUT /api/admin/membership` | 費率與註冊開關 |
 
-`mobile/membership.py` 的 `Members` 是目前會員／點數資料存取邊界，由 `Store.connect()` 注入連線；`reserve()` 及 `settle()` 參與任務交易。未來取得資料庫資訊後，需一併將會員、sessions、uploads、jobs、流水與設定搬到服務端交易；不能只替換餘額查詢而把扣點與任務建立拆開。
+`mobile/accounts.py` 的 `MongoAccounts` 是帳號資料存取邊界；`mobile/membership.py` 的 `Members` 負責會員 API 與本機錢包整合，`reserve()` 及 `settle()` 參與任務交易。若後續將點數集中到雲端，必須連同生成任務建立／結算一起設計，不能把扣點與任務建立拆成兩個獨立寫入。
 
 目前是受信任單機主機的功能驗證版本。本機擁有者可以修改資料檔、程式與模型，因此此版本無法作為防竄改的商用授權或真實付費點數權威。正式收費前，須把權威帳務、管理憑證、登入限流與備份移到受控服務；會員 EXE 不應持有主機連線碼。外部資料庫連線資訊與郵件／支付密鑰才放服務端必要 `.env`，費率等選項維持在後台。
 
-未接自動支付、發票、郵件驗證、自動郵件找回、MFA、跨主機會員同步；待服務端、資料庫與供應商資訊確定後串接。
+未接自動支付、發票、郵件驗證、自動郵件找回、MFA 或跨主機點數同步。
 
 ## 驗證
 
 ```powershell
 .runtime\mobile-venv\Scripts\python.exe -m unittest discover -s mobile\tests -v
+.runtime\mobile-venv\Scripts\python.exe -m tools.test_accounts_mongo
 node tools\test_membership_ui.cjs
 node tools\test-mobile-ui.cjs
 node tools\test-studio-ui.cjs
@@ -67,6 +78,6 @@ powershell -ExecutionPolicy Bypass -File tools\test-mobile-session.ps1
 powershell -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-UI 測試需 Playwright 與 Edge；會員測試使用隔離資料與模擬生成，不需要 GPU。會員端到端測試也不會改動主機帳號。
+UI 測試需 Playwright 與 Edge；一般 Python／UI 測試明確注入記憶體帳號，不讀取真實 Atlas，也不需要 GPU。`tools.test_accounts_mongo` 是需明確執行的 Atlas 整合測試，使用唯一 `qianmi_ai_test_*` 資料庫，結束後只移除該測試資料庫，不改動正式帳號。
 
-實作前檢視 [credit_management](https://github.com/Meenapintu/credit_management) 的資料庫邊界與預扣／結算模式；本專案重用現有 FastAPI、SQLite 交易與工作階段，未加入新依賴。
+計點實作參考 [credit_management](https://github.com/Meenapintu/credit_management) 的資料庫邊界與預扣／結算模式；帳號串接使用 [MongoDB 官方 PyMongo](https://github.com/mongodb/mongo-python-driver) 及其[交易 API](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/crud/transactions/)，未加入 ORM 或另一套登入框架。

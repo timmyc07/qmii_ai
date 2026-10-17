@@ -6,7 +6,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from mobile.server import Store, create_app
+from mobile.tests.support import Store, create_app
 
 
 class OutputTest(unittest.TestCase):

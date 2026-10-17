@@ -103,7 +103,7 @@
   async function memberView() {
     if (!account?.member && !account?.owner) { loginView(); return; }
     const member = account.member, admin = account.owner || member?.role === 'admin';
-    content.innerHTML = `<p>${member ? `<strong>${escape(member.name)}</strong> · ${escape(member.email)}<br>可用點數：<strong>${member.balance}</strong> 點 · ${member.role === 'admin' ? '管理員' : '一般會員'}` : '私人主機管理連線（免點數），可管理會員。'}</p>
+    content.innerHTML = `<p>${member ? `<strong>${escape(member.name)}</strong> · ${escape(member.email)}<br>可用點數：<strong>${member.balance}</strong> 點 · ${member.role === 'admin' ? '管理員' : '一般會員'}${member.created ? `<small>加入時間：${time(member.created)} · 最近登入：${member.last_login_at ? time(member.last_login_at) : '尚未記錄'}</small>` : ''}` : '私人主機管理連線（免點數），可管理會員。'}</p>
       <div class="membership-actions"><button data-refresh type="button">更新餘額</button>${admin ? '<button data-admin type="button">會員管理</button>' : ''}<button data-logout type="button">登出</button></div>
       ${member ? `<h3>點數紀錄</h3><div data-ledger></div><div class="membership-actions"><button data-prev type="button">上一頁</button><button data-next type="button">下一頁</button></div>
       <details><summary>修改密碼</summary><p>修改後全部設備登出，請重新登入。</p><form data-password>${password('current_password', '目前密碼', 'current-password')}${password()}<button type="submit">更新密碼並登出</button></form></details>` : ''}`;

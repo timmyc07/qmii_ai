@@ -1,10 +1,9 @@
-"""Membership repository boundary; replace this adapter when the hosted database is chosen."""
+"""MongoDB account identity with transactionally local generation wallets."""
 import hashlib
 import hmac
 import json
 import re
 import secrets
-import sqlite3
 import time
 from typing import Literal
 
@@ -73,16 +72,14 @@ def email_address(value):
 
 
 class Members:
-    # shortcut: this adapter shares the single host SQLite transaction with jobs; move both to a hosted transaction before multi-host use.
-    def __init__(self, connect):
+    # shortcut: wallets and jobs remain a single-host transaction; move both together before sharing paid credits across hosts.
+    def __init__(self, connect, accounts):
         self.connect = connect
+        self.accounts = accounts
         with connect() as db:
             db.executescript('''
-                CREATE TABLE IF NOT EXISTS members (
-                    id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
-                    password TEXT NOT NULL, role TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
-                    balance INTEGER NOT NULL DEFAULT 0 CHECK(balance>=0), created REAL NOT NULL,
-                    reset_hash TEXT, reset_expires REAL);
+                CREATE TABLE IF NOT EXISTS member_wallets (
+                    id TEXT PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 0 CHECK(balance>=0));
                 CREATE TABLE IF NOT EXISTS point_ledger (
                     id INTEGER PRIMARY KEY, member_id TEXT NOT NULL, amount INTEGER NOT NULL,
                     balance INTEGER NOT NULL, reason TEXT NOT NULL, actor TEXT, job_id TEXT,
@@ -96,7 +93,7 @@ class Members:
                 INSERT OR IGNORE INTO membership_settings VALUES (1,1,3,10);
             ''')
             for table, fields in {
-                'sessions': [('member_id', 'TEXT')], 'uploads': [('member_id', 'TEXT')],
+                'sessions': [('member_id', 'TEXT'), ('auth_version', 'INTEGER NOT NULL DEFAULT 0')], 'uploads': [('member_id', 'TEXT')],
                 'jobs': [('member_id', 'TEXT'), ('reserved_points', 'INTEGER NOT NULL DEFAULT 0'),
                          ('unit_points', 'INTEGER NOT NULL DEFAULT 0'), ('settled', 'INTEGER NOT NULL DEFAULT 0')],
             }.items():
@@ -104,10 +101,17 @@ class Members:
                 for name, definition in fields:
                     if name not in columns:
                         db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='members'").fetchone():
+                rows = [dict(row) for row in db.execute('SELECT * FROM members')]
+                if rows:
+                    accounts.import_members(rows)
+                for row in rows:
+                    db.execute('INSERT OR IGNORE INTO member_wallets(id,balance) VALUES (?,?)', (row['id'], row['balance']))
+                db.execute('DROP TABLE members')
 
     @staticmethod
     def public(row):
-        return {key: row[key] for key in ('id', 'email', 'name', 'role', 'active', 'balance', 'created')}
+        return {key: row[key] for key in ('id', 'email', 'name', 'role', 'active', 'balance', 'created', 'updated_at', 'last_login_at')}
 
     @staticmethod
     def audit(db, actor, member_id, action):
@@ -121,13 +125,18 @@ class Members:
                                                  extra='ignore').model_dump()
 
     def member(self, member_id, db=None):
-        if db is None:
-            with self.connect() as db:
-                return self.member(member_id, db)
-        row = db.execute('SELECT * FROM members WHERE id=?', (member_id,)).fetchone()
+        row = self.accounts.get(member_id)
         if not row:
             raise HTTPException(404, '找不到會員。')
-        return row
+        if db is None:
+            with self.connect() as db:
+                return row | {'balance': self.wallet(db, member_id)}
+        return row | {'balance': self.wallet(db, member_id)}
+
+    @staticmethod
+    def wallet(db, member_id):
+        db.execute('INSERT OR IGNORE INTO member_wallets(id) VALUES (?)', (member_id,))
+        return db.execute('SELECT balance FROM member_wallets WHERE id=?', (member_id,)).fetchone()[0]
 
     def register(self, value, bootstrap=False):
         email = email_address(value.email)
@@ -135,31 +144,24 @@ class Members:
         if not name:
             raise HTTPException(422, '請填寫會員名稱。')
         encoded = password_hash(value.password)
+        if not bootstrap and not self.settings()['registration_open']:
+            raise HTTPException(403, '目前未開放註冊，請聯絡管理員。')
+        member_id, now = secrets.token_hex(16), time.time()
+        self.accounts.create(dict(id=member_id, email=email, name=name, password=encoded,
+                                  role='admin' if bootstrap else 'member', active=True, auth_version=0,
+                                  created=now, updated_at=now, last_login_at=None), bootstrap)
         with self.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            exists = db.execute('SELECT 1 FROM members LIMIT 1').fetchone()
-            if bootstrap and exists:
-                raise HTTPException(409, '管理員已建立，請使用會員登入。')
-            if not bootstrap and (not exists or not db.execute('SELECT registration_open FROM membership_settings').fetchone()[0]):
-                raise HTTPException(403, '目前未開放註冊，請聯絡管理員。')
-            member_id = secrets.token_hex(16)
-            try:
-                db.execute('INSERT INTO members(id,email,name,password,role,created) VALUES (?,?,?,?,?,?)',
-                           (member_id, email, name, encoded, 'admin' if bootstrap else 'member', time.time()))
-            except sqlite3.IntegrityError:
-                raise HTTPException(409, '此電子郵件已註冊。') from None
             self.audit(db, member_id, member_id, '建立管理員' if bootstrap else '會員註冊')
-            return self.public(self.member(member_id, db))
+            return self.member(member_id, db)
 
     def authenticate(self, value):
         email = email_address(value.email)
-        with self.connect() as db:
-            row = db.execute('SELECT * FROM members WHERE email=?', (email,)).fetchone()
+        row = self.accounts.by_email(email)
         # Use the same expensive operation when an account does not exist.
         valid = check_password(value.password, row['password']) if row else check_password(value.password, '00' * 16 + ':' + '00' * 64)
         if not valid or not row or not row['active']:
             raise HTTPException(401, '帳號或密碼錯誤，或帳號已停用。')
-        return row
+        return self.accounts.login(row)
 
     def adjust(self, db, member_id, amount, reason, actor, key, job_id=None):
         previous = db.execute('SELECT * FROM point_ledger WHERE operation_key=?', (key,)).fetchone()
@@ -167,10 +169,11 @@ class Members:
             if previous['member_id'] != member_id or previous['amount'] != amount or previous['reason'] != reason:
                 raise HTTPException(409, '請求編號已使用，請重新操作。')
             return
-        if not db.execute('UPDATE members SET balance=balance+? WHERE id=? AND balance+?>=0',
+        self.wallet(db, member_id)
+        if not db.execute('UPDATE member_wallets SET balance=balance+? WHERE id=? AND balance+?>=0',
                           (amount, member_id, amount)).rowcount:
             raise HTTPException(402, '點數不足，請聯絡管理員儲值。')
-        balance = self.member(member_id, db)['balance']
+        balance = self.wallet(db, member_id)
         db.execute('INSERT INTO point_ledger(member_id,amount,balance,reason,actor,job_id,operation_key,created) VALUES (?,?,?,?,?,?,?,?)',
                    (member_id, amount, balance, reason, actor, job_id, key, time.time()))
 
@@ -178,8 +181,8 @@ class Members:
         if session['member_id'] is None:
             return 0, 0  # The private host administrator is not a billable member.
         member = self.member(session['member_id'], db)
-        if not member['active']:
-            raise HTTPException(403, '會員帳號已停用。')
+        if not member['active'] or member['auth_version'] != session['auth_version']:
+            raise HTTPException(401, '會員登入已失效，請重新登入。')
         video = value.workflow in ('h3_image', 'svi_image')
         unit = db.execute('SELECT video_points,image_points FROM membership_settings').fetchone()[0 if video else 1]
         count = 1 if value.workflow in ('reference', 'svi_image') else max(1, len(value.images))
@@ -228,11 +231,11 @@ def install_membership(app, store, parse_json, public_url):
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             current = members.member(member['id'], db)
-            if not current['active'] or ('password' in member.keys() and member['password'] != current['password']):
+            if not current['active'] or ('auth_version' in member and member['auth_version'] != current['auth_version']):
                 raise HTTPException(401, '帳號狀態已變更，請重新登入。')
             db.execute('DELETE FROM sessions WHERE id=?', (hashlib.sha256(request.cookies.get('qianmi_session', '').encode()).hexdigest(),))
-            db.execute('INSERT INTO sessions(id,csrf,expires,member_id) VALUES (?,?,?,?)',
-                       (hashlib.sha256(token.encode()).hexdigest(), csrf, time.time() + 7 * 86400, member['id']))
+            db.execute('INSERT INTO sessions(id,csrf,expires,member_id,auth_version) VALUES (?,?,?,?,?)',
+                       (hashlib.sha256(token.encode()).hexdigest(), csrf, time.time() + 7 * 86400, member['id'], current['auth_version']))
         response = JSONResponse({'csrf': csrf, 'member': members.public(current)})
         response.set_cookie('qianmi_session', token, httponly=True, samesite='strict', max_age=7 * 86400,
                             secure=bool(public_url) and request.url.hostname not in ('127.0.0.1', 'localhost'), path='/')
@@ -240,8 +243,7 @@ def install_membership(app, store, parse_json, public_url):
 
     @app.get('/api/membership')
     def config():
-        with store.connect() as db:
-            initialized = bool(db.execute('SELECT 1 FROM members LIMIT 1').fetchone())
+        initialized = members.accounts.initialized()
         return dict(initialized=initialized, **members.settings())
 
     @app.post('/api/membership/bootstrap')
@@ -250,7 +252,7 @@ def install_membership(app, store, parse_json, public_url):
         if session['member_id'] is not None or request.url.hostname not in ('localhost', '127.0.0.1'):
             raise HTTPException(403, '請由主機桌面建立第一位管理員。')
         limited(request)
-        return members.register(await parse_json(request, Registration), bootstrap=True)
+        return members.public(members.register(await parse_json(request, Registration), bootstrap=True))
 
     @app.post('/api/membership/register')
     async def register(request: Request):
@@ -290,7 +292,7 @@ def install_membership(app, store, parse_json, public_url):
             member = members.member(session['member_id'], db)
             if not check_password(value.current_password, member['password']):
                 raise HTTPException(403, '目前密碼不正確。')
-            db.execute('UPDATE members SET password=?,reset_hash=NULL,reset_expires=NULL WHERE id=?', (encoded, member['id']))
+            members.accounts.change_password(member, encoded)
             db.execute('DELETE FROM sessions WHERE member_id=?', (member['id'],))
             members.audit(db, member['id'], member['id'], '修改密碼並登出全部設備')
         return {'ok': True}
@@ -302,11 +304,7 @@ def install_membership(app, store, parse_json, public_url):
         encoded = password_hash(value.password)
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            member = db.execute('SELECT * FROM members WHERE reset_hash=? AND reset_expires>? AND active=1',
-                                (hashlib.sha256(value.token.encode()).hexdigest(), time.time())).fetchone()
-            if not member:
-                raise HTTPException(400, '重設碼無效或已過期。')
-            db.execute('UPDATE members SET password=?,reset_hash=NULL,reset_expires=NULL WHERE id=?', (encoded, member['id']))
+            member = members.accounts.reset_password(hashlib.sha256(value.token.encode()).hexdigest(), encoded)
             db.execute('DELETE FROM sessions WHERE member_id=?', (member['id'],))
             members.audit(db, member['id'], member['id'], '使用重設碼變更密碼')
         return {'ok': True}
@@ -316,10 +314,9 @@ def install_membership(app, store, parse_json, public_url):
         admin(request)
         if len(search) > 100 or offset < 0:
             raise HTTPException(422, '搜尋條件無效。')
+        rows = members.accounts.list(search, offset)
         with store.connect() as db:
-            rows = db.execute('SELECT * FROM members WHERE email LIKE ? OR name LIKE ? ORDER BY created DESC LIMIT 100 OFFSET ?',
-                              ('%' + search + '%', '%' + search + '%', offset)).fetchall()
-        return dict(items=[members.public(row) for row in rows])
+            return dict(items=[members.public(row | {'balance': members.wallet(db, row['id'])}) for row in rows])
 
     @app.put('/api/admin/members/{member_id}')
     async def update_member(member_id: str, request: Request):
@@ -327,11 +324,7 @@ def install_membership(app, store, parse_json, public_url):
         value = await parse_json(request, MemberUpdate)
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            member = members.member(member_id, db)
-            if member['role'] == 'admin' and member['active'] and (not value.active or value.role != 'admin'):
-                if db.execute("SELECT COUNT(*) FROM members WHERE role='admin' AND active=1").fetchone()[0] <= 1:
-                    raise HTTPException(409, '必須保留至少一位啟用的管理員。')
-            db.execute('UPDATE members SET role=?,active=?,reset_hash=NULL,reset_expires=NULL WHERE id=?', (value.role, value.active, member_id))
+            members.accounts.update(member_id, value.role, value.active)
             db.execute('DELETE FROM sessions WHERE member_id=?', (member_id,))
             members.audit(db, session['member_id'], member_id, f'設定角色 {value.role}，啟用 {value.active}')
         return {'ok': True}
@@ -354,9 +347,7 @@ def install_membership(app, store, parse_json, public_url):
         token = secrets.token_urlsafe(32)
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            members.member(member_id, db)
-            db.execute('UPDATE members SET reset_hash=?,reset_expires=? WHERE id=?',
-                       (hashlib.sha256(token.encode()).hexdigest(), time.time() + 1800, member_id))
+            members.accounts.issue_reset(member_id, hashlib.sha256(token.encode()).hexdigest())
             members.audit(db, session['member_id'], member_id, '發出 30 分鐘單次密碼重設碼')
         return dict(token=token, expires_in=1800)
 

@@ -16,7 +16,7 @@ from mobile import h3
 from mobile.generation import generate
 from mobile.parameters import validate_parameters
 from mobile.settings import Settings
-from mobile.server import Store, create_app
+from mobile.tests.support import Store, create_app
 
 
 class H3Test(unittest.TestCase):

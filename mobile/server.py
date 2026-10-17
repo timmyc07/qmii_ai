@@ -1,5 +1,5 @@
 """Authenticated membership gateway for the local GPU workstation."""
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, closing, contextmanager
 from datetime import datetime
 import hashlib
 import hmac
@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pymongo.errors import PyMongoError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .settings import Settings, SettingsStore, source_revision
 from .parameters import Parameters, validate_parameters, validate_h3_sources, validate_svi_sources
@@ -30,6 +31,7 @@ from .drive import Drive, DriveSettings
 from .maintenance import CleanupInput, Maintenance, health, workflow_check
 from .recipes import RecipeInput, Recipes
 from .membership import Members, install_membership
+from .accounts import MongoAccounts
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -91,7 +93,7 @@ async def parse_json(request, model, limit=40_000):
 
 
 class Store:
-    def __init__(self, state, output):
+    def __init__(self, state, output, accounts=None):
         self.state, self.output = Path(state), Path(output)
         self.state.mkdir(parents=True, exist_ok=True)
         self.output.mkdir(parents=True, exist_ok=True)
@@ -135,7 +137,13 @@ class Store:
                 if legacy.is_dir() and not any(legacy.iterdir()):
                     legacy.rmdir()
                 db.execute('PRAGMA user_version=1')
-        self.members = Members(self.connect)
+        account_store = accounts if accounts is not None else MongoAccounts.from_env()
+        with self.connect() as db:
+            backup = self.state / 'members-before-mongodb.sqlite3'
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='members'").fetchone() and not backup.exists():
+                with closing(sqlite3.connect(backup)) as destination:
+                    db.backup(destination)
+        self.members = Members(self.connect, account_store)
 
     def publish_results(self, job_id, directory, results, day, published):
         paths = []
@@ -186,14 +194,19 @@ class Store:
             row = db.execute('SELECT * FROM sessions WHERE id=? AND expires>?', (session_id, time.time())).fetchone()
         if not row:
             raise HTTPException(401, '請先登入會員或主機管理員。')
-        if row['member_id'] and not self.members.member(row['member_id'])['active']:
-            raise HTTPException(401, '會員帳號已停用，請聯絡管理員。')
+        if row['member_id']:
+            member = self.members.accounts.get(row['member_id'])
+            if not member or not member['active'] or row['auth_version'] != member['auth_version']:
+                raise HTTPException(401, '會員登入已失效，請重新登入或聯絡管理員。')
         if mutate and not hmac.compare_digest(request.headers.get('x-qianmi-csrf', ''), row['csrf']):
             raise HTTPException(403, '工作階段驗證失敗，請重新整理。')
         return row
 
     def privileged(self, session):
-        return session['member_id'] is None or self.members.member(session['member_id'])['role'] == 'admin'
+        if session['member_id'] is None:
+            return True
+        member = self.members.accounts.get(session['member_id'])
+        return bool(member and member['active'] and member['role'] == 'admin')
 
     def authorize_job(self, job_id, session):
         row = self.job(job_id)
@@ -238,9 +251,9 @@ class Store:
             db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
 
 
-def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, settings_path=None, library_dir=None):
+def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, settings_path=None, library_dir=None, accounts=None):
     revision = source_revision()
-    store = Store(state_dir or ROOT / '.runtime' / 'mobile', output_dir or ROOT / 'output')
+    store = Store(state_dir or ROOT / '.runtime' / 'mobile', output_dir or ROOT / 'output', accounts)
     drive = Drive(store.state, store.output)
     settings = SettingsStore(settings_path)
     maintenance = Maintenance(store)
@@ -287,9 +300,16 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 with store.connect() as db:
                     row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
                 if row:
-                    if row['member_id'] and not store.members.member(row['member_id'])['active']:
-                        store.update(row['id'], 'cancelled', '會員帳號已停用，任務已取消並退點。')
-                        continue
+                    if row['member_id']:
+                        try:
+                            member = store.members.accounts.get(row['member_id'])
+                        except PyMongoError:
+                            member = None
+                            row = None  # Keep the reservation queued while the account authority is unavailable.
+                        if row and (not member or not member['active']):
+                            store.update(row['id'], 'cancelled', '會員帳號已停用，任務已取消並退點。')
+                            continue
+                if row:
                     control = controls[row['id']] = TaskControl()
                     store.update(row['id'], 'running', '正在準備電腦…')
             if not row:
@@ -378,6 +398,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         drive.wake.set()
         thread.join()
         upload_thread.join()
+        store.members.accounts.close()
         LOG.info('Mobile service stopped')
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -385,6 +406,11 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     app.state.drive = drive
     install_membership(app, store, parse_json, public_url)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)
+
+    @app.exception_handler(PyMongoError)
+    async def account_unavailable(request, exc):
+        LOG.warning('Account database unavailable exception=%s', type(exc).__name__)
+        return JSONResponse({'detail': '會員資料庫暫時無法連線，請稍後重試。'}, status_code=503)
 
     @app.middleware('http')
     async def security(request, call_next):

@@ -13,7 +13,7 @@ import unittest
 
 import uvicorn
 from mobile.desktop import ROOT, StudioClient, main
-from mobile.server import create_app
+from mobile.tests.support import create_app
 
 
 class DesktopBridgeTest(unittest.TestCase):

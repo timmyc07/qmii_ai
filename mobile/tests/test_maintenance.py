@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from mobile.maintenance import Maintenance, directory_size, workflow_check
 from mobile.recipes import RecipeInput, Recipes
-from mobile.server import Store, create_app
+from mobile.tests.support import Store, create_app
 
 
 class MaintenanceTest(unittest.TestCase):

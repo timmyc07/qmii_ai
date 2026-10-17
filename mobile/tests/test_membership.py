@@ -11,7 +11,7 @@ import unittest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from mobile.server import create_app
+from mobile.tests.support import create_app
 
 ORIGIN = {'Origin': 'http://localhost:8787'}
 PASSWORD = 'test password 12345'
@@ -115,8 +115,7 @@ class MembershipTest(unittest.TestCase):
                                      json=dict(email='another@example.com', name='a', password=PASSWORD, role='admin')).status_code, 422)
         self.assertEqual(self.owner.post('/api/membership/bootstrap', headers=self.owner_headers,
                                         json=dict(email='a@b.com', name='admin', password=PASSWORD)).status_code, 409)
-        with self.app.state.store.connect() as db:
-            self.assertNotIn(PASSWORD, db.execute('SELECT password FROM members WHERE id=?', (member_id,)).fetchone()[0])
+        self.assertNotIn(PASSWORD, self.app.state.store.members.accounts.get(member_id)['password'])
 
     def test_atomic_precharge_idempotency_success_and_adjustment_replay(self):
         client, headers, member_id = self.register()
@@ -221,8 +220,7 @@ class MembershipTest(unittest.TestCase):
     def test_password_reset_is_single_use_expires_and_revokes_sessions(self):
         client, headers, member_id = self.register()
         issued = self.owner.post(f'/api/admin/members/{member_id}/reset', headers=self.owner_headers).json()
-        with self.app.state.store.connect() as db:
-            self.assertNotEqual(db.execute('SELECT reset_hash FROM members WHERE id=?', (member_id,)).fetchone()[0], issued['token'])
+        self.assertNotEqual(self.app.state.store.members.accounts.get(member_id)['reset_hash'], issued['token'])
         value = dict(token=issued['token'], password='replacement password')
         self.assertEqual(client.post('/api/membership/reset', headers=ORIGIN, json=value).status_code, 200)
         self.assertEqual(client.get('/api/session').status_code, 401)
@@ -234,8 +232,7 @@ class MembershipTest(unittest.TestCase):
                                      json=dict(current_password=value['password'], password=PASSWORD)).status_code, 200)
         self.assertEqual(client.get('/api/session').status_code, 401)
         token = self.owner.post(f'/api/admin/members/{member_id}/reset', headers=self.owner_headers).json()['token']
-        with self.app.state.store.connect() as db:
-            db.execute('UPDATE members SET reset_expires=0 WHERE id=?', (member_id,))
+        self.app.state.store.members.accounts.records[member_id]['reset_expires'] = 0
         self.assertEqual(client.post('/api/membership/reset', headers=ORIGIN,
                                      json=dict(token=token, password=PASSWORD)).status_code, 400)
 
