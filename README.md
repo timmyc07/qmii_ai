@@ -33,6 +33,8 @@
 
 ## 本機路徑
 
+本機效能、模型切換及 Wan 5B 實驗比較的固定案例與指令見 [本機生成基準](docs/BENCHMARKS.md)。
+
 - 原始碼：`D:\codes\qmii_ai`
 - Turbo 執行環境與模型：`D:\AI\Qwen-Image-2.1-Turbo`
 - ComfyUI SuperDuper 執行環境：`D:\AI\QwenImage21SuperDuper`

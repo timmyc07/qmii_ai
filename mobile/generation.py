@@ -85,6 +85,8 @@ def clean_output(output):
 
 
 def run_turbo(prompt, sources, output, seed, parameters=None):
+    from .superduper import release_models
+    release_models()
     models = TURBO / 'models'
     prompt_file = output.parent / '.prompt.txt'
     prompt_file.write_text(prompt, encoding='utf-8')

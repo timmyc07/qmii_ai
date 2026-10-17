@@ -5,3 +5,4 @@
 - Qwen Image 2.1 Turbo 與其本機推理執行環境：依模型及執行環境來源條款使用。
 - 手機服務使用 FastAPI（MIT）、Uvicorn（BSD-3-Clause）、Pillow（MIT-CMU）與 httpx（BSD-3-Clause）。
 - HTTPS 連線使用 Cloudflare cloudflared（Apache-2.0）官方執行檔；版本與雜湊見 `docs/MOBILE.md`。
+- Wan 2.2 TI2V-5B 實驗基準依 [Comfy-Org 工作流範本](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_5B_ti2v.json) 的原生節點與配方實作（[MIT，Copyright (c) 2023-present Comfy Org](https://github.com/Comfy-Org/workflow_templates/blob/main/LICENSE)）。[Wan-AI TI2V-5B 模型](https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B) 以 Apache-2.0 發布；模型僅下載至本機，未包含在原始碼或 EXE。

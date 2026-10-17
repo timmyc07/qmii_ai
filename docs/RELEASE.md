@@ -7,6 +7,14 @@
 
 `dist`、模型、runtime、日誌與生成圖片不提交 Git。目前 portable EXE 依賴本機 Turbo 與 SuperDuper 執行環境。
 
+## 0.8.0
+
+- 新增可重跑的本機生成基準：版本／模型盤點、固定案例、節點耗時、整機 VRAM／RAM 取樣、可解碼輸出與首／中／尾幀驗收資料。
+- 新增 Wan 2.2 TI2V-5B 實驗比較入口與固定版本、SHA256 驗證安裝器；僅輸出無聲影片，不更改日常模式預設。
+- Qwen CLI 啟動前先確認 ComfyUI 閒置並釋放模型與執行快取；狀態不明、仍在生成或顯存未釋放時拒絕切換。
+- 保留原生 offload、`--lowvram` 與共用 GPU 鎖；未修改 pagefile 或安裝額外 attention／後處理套件。
+- 完成 48 項 Python 回歸、三組 UI 回歸與 20 次實際 GPU 輸出驗證；數值與品質限制見 [本機驗收紀錄](LOCAL_AI_GENERATION_RESULTS.md)。
+
 ## 0.7.0
 
 - 圖片生影片新增品質配方、自訂寬高、圖片適配、音訊開關、輸出 CRF、採樣器、LoRA 權重及影音 shift；依 Turbo 作者建議修正步數、LoRA、Euler 與 shift 配對。

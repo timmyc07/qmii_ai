@@ -9,6 +9,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 import time
 from urllib.parse import urlencode
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +66,26 @@ def request_json(path, payload=None, timeout=10):
     with urlopen(request, timeout=timeout) as response:
         content = response.read()
         return json.loads(content) if content else {}
+
+
+def release_models():
+    """Called under the shared GPU lock before switching to the CLI engine."""
+    try:
+        queue = request_json('/queue')
+    except URLError as exc:
+        if isinstance(exc.reason, ConnectionRefusedError):
+            return
+        raise ComfyWorkflowError('無法確認 ComfyUI 狀態，已停止模型切換。') from None
+    if queue.get('queue_running') or queue.get('queue_pending'):
+        raise ComfyWorkflowError('ComfyUI 仍有生成任務，請待完成後再切換快速生成。')
+    request_json('/free', {'unload_models': True, 'free_memory': True})
+    # /free schedules cleanup on ComfyUI's worker; HTTP 200 is not its completion.
+    for _ in range(60):
+        time.sleep(1)
+        devices = request_json('/system_stats')['devices']
+        if all(device['torch_vram_total'] - device['torch_vram_free'] <= 256 * 1024**2 for device in devices):
+            return
+    raise ComfyWorkflowError('ComfyUI 尚未釋放顯存，已停止模型切換，請查看主機日誌。')
 
 
 def dependencies():

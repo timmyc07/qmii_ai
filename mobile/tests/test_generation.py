@@ -118,11 +118,13 @@ class GenerationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             output = root / 'output.png'
-            with patch('mobile.generation.TURBO', root), patch('mobile.generation.subprocess.run') as execute:
+            with patch('mobile.generation.TURBO', root), patch('mobile.generation.subprocess.run') as execute, \
+                    patch('mobile.superduper.release_models') as release:
                 execute.return_value.returncode = 0
                 run_turbo('main prompt', [], output, 42,
                           dict(width=768, height=1344, steps=8, cfg=2.5, negative='blur'))
             args = execute.call_args.args[0]
+            release.assert_called_once()
             self.assertEqual(args[args.index('-W') + 1], '768')
             self.assertEqual(args[args.index('-H') + 1], '1344')
             self.assertEqual(args[args.index('--cfg-scale') + 1], '2.5')

@@ -118,26 +118,30 @@ def run(parameters, prompt, seed, output, progress, source, last_source=None):
         value = graph(parameters, prompt, seed, image, last)
         progress('正在準備 H3 影片服務，首次載入需要較長時間…')
         ensure_server({node['class_type'] for node in value.values()})
-        try:
-            prompt_id = request_json('/prompt', {'prompt': value}, 30)['prompt_id']
-        except HTTPError:
-            raise ComfyWorkflowError('H3 工作流未通過節點驗證，請查看 .runtime/superduper.log。') from None
         progress('正在將首幀生成影片…')
-        for _ in range(7200):
-            history = request_json(f'/history/{prompt_id}', timeout=30)
-            if prompt_id in history:
-                result = history[prompt_id]
-                if result.get('status', {}).get('status_str') == 'error':
-                    raise workflow_error('H3', result['status'], value)
-                if result.get('status', {}).get('completed'):
-                    files = result.get('outputs', {}).get('save', {}).get('images', [])
-                    if not files:
-                        raise ComfyWorkflowError('H3 未產生影片，請查看 .runtime/superduper.log。')
-                    query = urlencode({key: files[-1][key] for key in ('filename', 'subfolder', 'type')})
-                    with urlopen(URL + '/view?' + query, timeout=120) as response, (output / '0.mp4').open('wb') as target:
-                        shutil.copyfileobj(response, target)
-                    if not (output / '0.mp4').stat().st_size:
-                        raise ComfyWorkflowError('H3 輸出檔案為空，請查看 .runtime/superduper.log。')
-                    return ['0.mp4']
-            time.sleep(1)
-    raise ComfyWorkflowError('H3 影片生成逾時，請查看 .runtime/superduper.log。')
+        return execute_video(value, output, 'H3')
+
+
+def execute_video(value, output, name):
+    try:
+        prompt_id = request_json('/prompt', {'prompt': value}, 30)['prompt_id']
+    except HTTPError:
+        raise ComfyWorkflowError(f'{name} 工作流未通過節點驗證，請查看 .runtime/superduper.log。') from None
+    for _ in range(7200):
+        history = request_json(f'/history/{prompt_id}', timeout=30)
+        if prompt_id in history:
+            result = history[prompt_id]
+            if result.get('status', {}).get('status_str') == 'error':
+                raise workflow_error(name, result['status'], value)
+            if result.get('status', {}).get('completed'):
+                files = result.get('outputs', {}).get('save', {}).get('images', [])
+                if not files:
+                    raise ComfyWorkflowError(f'{name} 未產生影片，請查看 .runtime/superduper.log。')
+                query = urlencode({key: files[-1][key] for key in ('filename', 'subfolder', 'type')})
+                with urlopen(URL + '/view?' + query, timeout=120) as response, (output / '0.mp4').open('wb') as target:
+                    shutil.copyfileobj(response, target)
+                if not (output / '0.mp4').stat().st_size:
+                    raise ComfyWorkflowError(f'{name} 輸出檔案為空，請查看 .runtime/superduper.log。')
+                return ['0.mp4']
+        time.sleep(1)
+    raise ComfyWorkflowError(f'{name} 影片生成逾時，請查看 .runtime/superduper.log。')
