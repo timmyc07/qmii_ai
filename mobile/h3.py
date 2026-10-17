@@ -138,13 +138,13 @@ def run(parameters, prompt, seed, output, progress, source, last_source=None):
         return execute_video(value, output, 'H3')
 
 
-def execute_video(value, output, name):
+def execute_video(value, output, name, *, url=URL, log_path='.runtime/superduper.log'):
     try:
-        prompt_id = request_json('/prompt', {'prompt': value}, 30)['prompt_id']
+        prompt_id = request_json('/prompt', {'prompt': value}, 30, url=url)['prompt_id']
     except HTTPError:
-        raise ComfyWorkflowError(f'{name} 工作流未通過節點驗證，請查看 .runtime/superduper.log。') from None
+        raise ComfyWorkflowError(f'{name} 工作流未通過節點驗證，請查看 {log_path}。') from None
     for _ in range(7200):
-        history = request_json(f'/history/{prompt_id}', timeout=30)
+        history = request_json(f'/history/{prompt_id}', timeout=30, url=url)
         if prompt_id in history:
             result = history[prompt_id]
             if result.get('status', {}).get('status_str') == 'error':
@@ -152,12 +152,12 @@ def execute_video(value, output, name):
             if result.get('status', {}).get('completed'):
                 files = result.get('outputs', {}).get('save', {}).get('images', [])
                 if not files:
-                    raise ComfyWorkflowError(f'{name} 未產生影片，請查看 .runtime/superduper.log。')
+                    raise ComfyWorkflowError(f'{name} 未產生影片，請查看 {log_path}。')
                 query = urlencode({key: files[-1][key] for key in ('filename', 'subfolder', 'type')})
-                with urlopen(URL + '/view?' + query, timeout=120) as response, output.open('wb') as target:
+                with urlopen(url + '/view?' + query, timeout=120) as response, output.open('wb') as target:
                     shutil.copyfileobj(response, target)
                 if not output.stat().st_size:
-                    raise ComfyWorkflowError(f'{name} 輸出檔案為空，請查看 .runtime/superduper.log。')
+                    raise ComfyWorkflowError(f'{name} 輸出檔案為空，請查看 {log_path}。')
                 return [output.name]
         time.sleep(1)
-    raise ComfyWorkflowError(f'{name} 影片生成逾時，請查看 .runtime/superduper.log。')
+    raise ComfyWorkflowError(f'{name} 影片生成逾時，請查看 {log_path}。')

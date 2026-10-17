@@ -20,6 +20,7 @@ class TaskControl:
     def __init__(self):
         self.cancelled = threading.Event()
         self.prompt_id = None
+        self.comfy_url = None
 
     def check(self):
         if self.cancelled.is_set():
@@ -29,11 +30,12 @@ class TaskControl:
         if not self.cancelled.is_set() or not self.prompt_id:
             return
         from .superduper import request_json
+        endpoint = {'url': self.comfy_url} if self.comfy_url else {}
         try:
-            request_json(f'/api/jobs/{self.prompt_id}/cancel', {}, timeout=5)
+            request_json(f'/api/jobs/{self.prompt_id}/cancel', {}, timeout=5, **endpoint)
             deadline = time.monotonic() + 60
             while time.monotonic() < deadline:
-                queue = request_json('/queue', timeout=5)
+                queue = request_json('/queue', timeout=5, **endpoint)
                 if not any(row[1] == self.prompt_id for row in queue.get('queue_running', []) + queue.get('queue_pending', [])):
                     return
                 time.sleep(.25)

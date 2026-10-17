@@ -62,15 +62,16 @@ REWIRES = {
 }
 
 
-def request_json(path, payload=None, timeout=10):
+def request_json(path, payload=None, timeout=10, *, url=URL):
     control = CURRENT.get()
     if control:
         control.check()
         if path == '/prompt':
             control.prompt_id = str(uuid.uuid4())
+            control.comfy_url = url
             payload = {**payload, 'prompt_id': control.prompt_id}
     data = json.dumps(payload).encode() if payload is not None else None
-    request = Request(URL + path, data=data, headers={'Content-Type': 'application/json'})
+    request = Request(url + path, data=data, headers={'Content-Type': 'application/json'})
     with urlopen(request, timeout=timeout) as response:
         content = response.read()
         result = json.loads(content) if content else {}

@@ -1,5 +1,5 @@
 """Validated image and H3 generation overrides."""
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -33,11 +33,19 @@ class Parameters(BaseModel):
     end_frame: Literal['none', 'first', 'custom'] | None = None
     identity_prompt: bool | None = Field(default=None, strict=True)
     refmod: bool | None = Field(default=None, strict=True)
+    segment_prompts: list[Annotated[str, Field(min_length=1, max_length=2500)]] | None = Field(default=None, min_length=3, max_length=3)
 
 
 def validate_parameters(value, workflow=None):
     result = Parameters.model_validate(value).model_dump(exclude_none=True)
-    if workflow == 'h3_image':
+    if workflow == 'svi_image':
+        if set(result) - {'seed', 'negative', 'segment_prompts'}:
+            raise ValueError('高耗能模式沿用 SVI 三段配方，僅可設定三段提示詞、負面提示詞與種子。')
+        if 'segment_prompts' in result and any(not text.strip() for text in result['segment_prompts']):
+            raise ValueError('請完整填寫三段提示詞。')
+    elif 'segment_prompts' in result:
+        raise ValueError('三段提示詞僅適用於高耗能圖片轉影片模式。')
+    elif workflow == 'h3_image':
         allowed = {'width', 'height', 'duration', 'seed', 'video_profile', 'steps', 'sampler',
                    'shift_video', 'shift_audio', 'lora_strength', 'resize_method', 'crop',
                    'video_audio', 'video_crf', 'end_frame', 'identity_prompt', 'refmod'}
@@ -58,6 +66,13 @@ def validate_parameters(value, workflow=None):
                         'resize_method', 'crop', 'video_audio', 'video_crf', 'end_frame', 'identity_prompt'}:
         raise ValueError('影片參數僅適用於圖片生影片模式。')
     return result
+
+
+def validate_svi_sources(parameters, sources, last_image=None):
+    if len(sources) != 1 or last_image is not None:
+        raise ValueError('高耗能圖片轉影片模式需要一張首幀，不使用尾幀。')
+    if not parameters.get('segment_prompts'):
+        raise ValueError('請完整填寫三段提示詞。')
 
 
 def validate_h3_sources(parameters, sources, last_image=None):

@@ -31,6 +31,7 @@
       <nav class="studio-modes" aria-label="切換創作頁面">
         <button type="button" data-studio-mode="image" aria-pressed="true">✿ 圖片創作</button>
         <button type="button" data-studio-mode="h3_image" aria-pressed="false">▧ 圖片生影片</button>
+        <button type="button" data-studio-mode="svi_image" aria-pressed="false">✧ 高耗能圖片轉影片模式</button>
       </nav>
       <section id="conversation" class="conversation" tabindex="0" aria-label="創作對話">
         <div id="welcome" class="welcome">
@@ -42,14 +43,19 @@
         </div>
         <div id="feed" class="feed"></div>
         <div id="video-results-h3_image" class="feed hidden"></div>
+        <div id="video-results-svi_image" class="feed hidden"></div>
       </section>
 
       <footer class="composer-area">
         <button id="latest-message" class="latest-message hidden" type="button">↓ 回到最新</button>
         <div id="image-tray" class="image-tray hidden"></div>
         <div class="composer-shell">
-          <label for="prompt" class="prompt-label">正向提示詞</label>
+          <label for="prompt" id="prompt-label" class="prompt-label">正向提示詞</label>
           <textarea id="prompt" rows="2" maxlength="8000" placeholder="描述希望生成的內容…"></textarea>
+          <div id="svi-prompts" class="svi-prompts hidden">
+            <div><label for="svi-prompt-2" class="prompt-label">第二段 · 承接動作</label><textarea id="svi-prompt-2" rows="2" maxlength="2500" placeholder="延續第一段，描述接下來的動作與鏡頭…"></textarea></div>
+            <div><label for="svi-prompt-3" class="prompt-label">第三段 · 收尾畫面</label><textarea id="svi-prompt-3" rows="2" maxlength="2500" placeholder="延續第二段，描述最後的動作與結束畫面…"></textarea></div>
+          </div>
           <label for="negative-prompt" id="negative-label" class="prompt-label">負面提示詞</label>
           <textarea id="negative-prompt" rows="1" maxlength="4000" placeholder="描述不希望出現的內容，可留白…"></textarea>
           <div class="composer-tools"><div class="composer-left"><button id="upload-images" class="upload-button"><span class="upload-icon">＋</span><span>上傳圖片</span></button><span id="batch-label" class="batch-label"></span></div><div class="composer-right"><button id="cancel-generation" class="cancel-button hidden" type="button">■ 強制終止</button><button id="send" class="send-button" title="開始創作"><span>↑</span></button></div></div>
@@ -107,6 +113,16 @@
             </details>
             <p class="recipe-lock">配方固定：24 fps、Simple 排程、完整去噪、CFG 蒸餾引導、H.264／8-bit／sRGB MP4。CFG、負面提示詞及重繪強度不適用此工作流。短邊最多 768、長邊最多 1344，寬高須為 32 倍數。</p>
             <div class="video-actions"><button id="video-save-settings" type="button" class="secondary-button">儲存此模式設定</button><button id="video-reset-settings" type="button" class="secondary-button">還原配方</button></div>
+      </form>
+      <form id="svi-form" class="hidden">
+        <p class="creation-intro">高耗能圖片轉影片模式</p>
+        <p class="creation-help">上傳一張首幀，依序填寫三段提示詞。後兩段承接前一段的動作，最後合併為一支無聲影片。</p>
+        <div class="svi-recipe"><strong>三段續接 · Wan 2.2 SVI Pro</strong><span>480 × 720 · 16 fps · 約 14.6 秒</span><span>每段 81 幀 · Euler 8 步 · 高／低噪 Q8</span></div>
+        <div class="creation-section"><h2>任務結束，自動釋放</h2><p class="creation-help">完成、失敗或強制終止後，都會清理模型與快取，確認生成程序退出後再執行下一項任務。</p><p class="creation-help">此模式會大量使用記憶體，首次載入需要較長時間。已完成的影片會保留，可播放與下載。</p></div>
+        <label for="svi-seed">種子 Seed</label><input id="svi-seed" type="number" min="0" max="9007199254740991" step="1" placeholder="留白每次隨機">
+        <p class="creation-help">三段共用同一個種子；負面提示詞共用於三段，留白沿用作者配方。</p>
+        <button id="svi-example" type="button" class="secondary-button">載入三段動作範例</button>
+        <details class="creation-help"><summary>額外 LoRA 怎麼選？</summary><p>選擇作者明確標示 Wan 2.2 I2V A14B 相容的角色、風格或動作 LoRA。HIGH 檔只接高噪支線，LOW 檔只接低噪支線；單檔依作者說明使用，不直接複製到兩邊。</p><p>SVI Pro 與 Lightning 已隨配方載入。額外 LoRA 是疊加用途；Qwen、H3、SD、FLUX 及 Wan 5B／1.3B 的 LoRA 不適用。Wan 2.1 或 T2V 版本需作者另行確認 I2V 相容性。</p><p>建議先單組、低權重測試，三段維持同組 LoRA 與觸發詞。目前此頁使用固定配方，額外 LoRA 的 HIGH／LOW 入口位於原 ComfyUI 工作流。</p></details>
       </form>
     </aside>
   </div>

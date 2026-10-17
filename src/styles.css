@@ -398,14 +398,39 @@ button:disabled { cursor: wait; opacity: .6; }
 .parameter-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 0; }
 .parameter-grid input { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #dccfec; border-radius: 10px; background: #fff; color: #493d58; }
 
-.studio-modes { display: flex; gap: .4rem; padding: .65rem clamp(.8rem, 1.7vw, 1.8rem); border-bottom: 1px solid var(--line); }
+.studio-modes { display: flex; flex-wrap: wrap; gap: .4rem; padding: .65rem clamp(.8rem, 1.7vw, 1.8rem); border-bottom: 1px solid var(--line); }
 .studio-modes button { padding: .65rem 1rem; border-radius: .85rem; background: #f8f3fc; font-size: .85rem; font-weight: 800; }
 .studio-modes button[aria-pressed="true"] { background: #eee2f8; color: var(--purple-dark); box-shadow: inset 0 0 0 1px #cfb9e5; }
 #video-form .parameter-grid { grid-template-columns: 1fr; }
 #video-form .video-actions { display: grid; gap: .6rem; }
 #video-form .creation-intro { margin-top: .5rem; }
 .result-video { width: min(100%, 34rem); max-height: min(55dvh, 38rem); background: #201b26; border-radius: 1rem; display: block; margin: .75rem 0; }
+.svi-prompts { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+.svi-prompts > div { min-width: 0; }
+.svi-prompts textarea { width: 100%; }
+.svi-recipe { display: grid; gap: .55rem; padding: .9rem; border-radius: 1rem; background: #f2e9f8; font-size: .78rem; line-height: 1.6; }
+.svi-recipe span { color: var(--muted); }
+#svi-form > input { width: 100%; min-width: 0; box-sizing: border-box; padding: .7rem; border: 1px solid #dccfec; border-radius: .85rem; font: inherit; color: var(--ink); }
+.svi-mode .composer-shell textarea { min-height: 2.5rem; max-height: 8dvh; }
+.svi-mode #negative-prompt { min-height: 1.8rem; max-height: 5dvh; }
+.svi-mode .welcome { padding: .8rem 1rem; }
+.svi-mode .welcome-illustration, .svi-mode .welcome .eyebrow { display: none; }
+.svi-mode .welcome h1 { font-size: clamp(1rem, 1.5vw, 1.5rem); }
 @media (max-width: 48rem) {
   .studio-modes { padding: .6rem; }
   .studio-modes button { flex: 1; padding: .65rem .4rem; }
+  .studio-modes [data-studio-mode="svi_image"] { flex-basis: 100%; }
+  .svi-prompts { grid-template-columns: 1fr; gap: .2rem; }
+}
+@media (max-height: 40rem) {
+  .studio-modes { flex-wrap: nowrap; overflow-x: auto; padding: .35rem .5rem; }
+  .studio-modes button, .studio-modes [data-studio-mode="svi_image"] { flex: 0 0 auto; white-space: nowrap; padding: .45rem .55rem; }
+  .svi-prompts { grid-template-columns: 1fr 1fr; gap: .4rem; }
+  .svi-mode .composer-shell textarea { min-height: 1.8rem; padding-block: .2rem; }
+}
+@media (max-width: 48rem) and (max-height: 40rem) {
+  .topbar { flex-wrap: nowrap; gap: .3rem; }
+  .top-brand .tiny-flower, .top-brand b { display: none; }
+  .top-actions { flex-wrap: nowrap; gap: .25rem; }
+  .top-actions .soft-button { padding: .4rem; font-size: .75rem; }
 }

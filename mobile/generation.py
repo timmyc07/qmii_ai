@@ -7,7 +7,7 @@ import subprocess
 
 from .gpu import gpu_lock
 from .cancellation import run_process, task_scope
-from .parameters import validate_parameters, validate_h3_sources
+from .parameters import validate_parameters, validate_h3_sources, validate_svi_sources
 
 LOG = logging.getLogger('qianmi.mobile')
 TURBO = Path(r'D:\AI\Qwen-Image-2.1-Turbo')
@@ -16,13 +16,15 @@ FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
 def generate(payload, sources, output_dir, progress):
     workflow = payload['workflow']
-    if workflow not in ('quick', 'reference', 'superduper', 'nsfw_adv', 'h3_image'):
+    if workflow not in ('quick', 'reference', 'superduper', 'nsfw_adv', 'h3_image', 'svi_image'):
         raise RuntimeError('不支援的生成模式。')
     if workflow == 'reference' and len(sources) < 2:
         raise RuntimeError('多圖參考生成至少需要 2 張參考圖片。')
     params = validate_parameters(payload.get('parameters', {}), workflow)
     if workflow == 'h3_image':
         validate_h3_sources(params, sources, payload.get('last_image'))
+    elif workflow == 'svi_image':
+        validate_svi_sources(params, sources, payload.get('last_image'))
 
     def new_seed(index=0):
         return (params['seed'] + index) % 9007199254740992 if 'seed' in params else secrets.randbelow(2**53)
@@ -31,6 +33,9 @@ def generate(payload, sources, output_dir, progress):
     control = payload.get('_control')
     with gpu_lock(check=control.check if control else None), task_scope(control):
         prompt = payload['prompt']
+        if workflow == 'svi_image':
+            from .svi import run
+            return run(params, new_seed(), output_dir / '0.mp4', progress, sources[0])
         if workflow == 'h3_image':
             from .h3 import ComfyWorkflowError, run
             results = []

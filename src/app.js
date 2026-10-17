@@ -2,7 +2,7 @@ const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
 
-const state = { presets: [], preciseMode: false, revision: '', images: [], generating: false, jobs: [], workflow: 'quick', generation: {}, studioMode: 'image', drafts: { image: { prompt: '', images: [] }, h3_image: { prompt: '', images: [] } }, chatScroll: { image: { top: 0, following: true }, h3_image: { top: 0, following: true } } };
+const state = { presets: [], preciseMode: false, revision: '', images: [], generating: false, jobs: [], workflow: 'quick', generation: {}, studioMode: 'image', drafts: { image: { prompt: '', images: [] }, h3_image: { prompt: '', images: [] }, svi_image: { prompt: '', images: [] } }, chatScroll: { image: { top: 0, following: true }, h3_image: { top: 0, following: true }, svi_image: { top: 0, following: true } } };
 const MAX_REFERENCE_IMAGES = 4;
 const $ = (id) => document.getElementById(id);
 const presetList = $('preset-list');
@@ -13,7 +13,7 @@ const conversation = $('conversation');
 const videoFeed = $('video-results-h3_image');
 let followingLatest = true, scrollFrame = 0, previousScrollTop = 0;
 
-function currentFeed() { return state.studioMode === 'h3_image' ? videoFeed : feed; }
+function currentFeed() { return state.studioMode === 'image' ? feed : $('video-results-' + state.studioMode); }
 
 function videoParameters() {
   const values = { video_profile: $('video-profile').value,
@@ -63,21 +63,27 @@ function setStudioMode(mode) {
   if (state.studioMode === 'h3_image' && [...$('video-form').querySelectorAll('input, select')].every(input => input.checkValidity())) state.generation.h3_image = videoParameters();
   cancelAnimationFrame(scrollFrame); scrollFrame = 0;
   state.studioMode = mode;
-  const video = mode === 'h3_image';
+  const h3 = mode === 'h3_image', svi = mode === 'svi_image', video = h3 || svi;
   setSidebarOpen(false); setCreationOpen(false);
   $('app-shell').classList.toggle('video-mode', video);
-  feed.classList.toggle('hidden', video); videoFeed.classList.toggle('hidden', !video);
-  $('image-settings').classList.toggle('hidden', video); $('video-form').classList.toggle('hidden', !video);
+  $('app-shell').classList.toggle('svi-mode', svi);
+  feed.classList.toggle('hidden', video); videoFeed.classList.toggle('hidden', !h3);
+  $('video-results-svi_image').classList.toggle('hidden', !svi);
+  $('image-settings').classList.toggle('hidden', video); $('video-form').classList.toggle('hidden', !h3);
+  $('svi-form').classList.toggle('hidden', !svi); $('svi-prompts').classList.toggle('hidden', !svi);
+  $('prompt-label').textContent = svi ? '第一段 · 起始動作' : '正向提示詞';
+  promptInput.maxLength = svi ? 2500 : 8000;
   $('precise-mode').classList.toggle('hidden', video);
-  $('creation-title').textContent = video ? '✧ 影片設定' : '✧ 創作設定';
+  $('creation-title').textContent = svi ? '✧ 高耗能模式設定' : video ? '✧ 影片設定' : '✧ 創作設定';
   conversation.setAttribute('aria-label', video ? '影片創作對話' : '圖片創作對話');
-  $('welcome').querySelector('h1').textContent = video ? '讓你的圖片動起來 ♡' : '今天想創作什麼呢？♡';
-  $('welcome').querySelector('.welcome-copy').textContent = video ? '最多選擇 4 張首幀，套用相同提示詞與參數，每張各自生成一支影片。' : '說說你的想法，或選張圖片，讓千迷AI陪你一起改造。';
+  $('welcome').querySelector('h1').textContent = svi ? '讓故事分三段，慢慢展開 ♡' : video ? '讓你的圖片動起來 ♡' : '今天想創作什麼呢？♡';
+  $('welcome').querySelector('.welcome-copy').textContent = svi ? '一張首幀，三段連續動作。完成後自動釋放生成資源。' : video ? '最多選擇 4 張首幀，套用相同提示詞與參數，每張各自生成一支影片。' : '說說你的想法，或選張圖片，讓千迷AI陪你一起改造。';
   $('welcome').querySelector('.idea-chips').classList.toggle('hidden', video);
   $('welcome').classList.toggle('hidden', currentFeed().childElementCount > 0);
   promptInput.value = state.drafts[mode].prompt; state.images = [...state.drafts[mode].images];
-  promptInput.placeholder = video ? '描述影片的畫面、動作與聲音…' : '寫下你的靈感，或先上傳一張圖片…';
-  $('send').title = video ? '生成有聲影片' : '開始創作';
+  promptInput.placeholder = svi ? '描述首幀場景，以及第一段開始的動作…' : video ? '描述影片的畫面、動作與聲音…' : '寫下你的靈感，或先上傳一張圖片…';
+  $('send').title = svi ? '生成三段續接影片' : video ? '生成有聲影片' : '開始創作';
+  $('send').setAttribute('aria-label', $('send').title);
   resizePrompt(); renderImageTray();
   document.querySelectorAll('[data-studio-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.studioMode === mode)));
   const savedScroll = state.chatScroll[mode];
@@ -86,8 +92,8 @@ function setStudioMode(mode) {
     conversation.scrollTop = savedScroll.following ? conversation.scrollHeight : savedScroll.top;
     previousScrollTop = conversation.scrollTop;
   });
-  if (!video) return;
-  loadVideoParameters(state.generation.h3_image || {});
+  if (h3) loadVideoParameters(state.generation.h3_image || {});
+  if (svi) $('svi-seed').value = state.generation.svi_image?.seed ?? '';
 }
 
 function setupVideoModes() {
@@ -127,6 +133,19 @@ function setupVideoModes() {
   };
   $('video-reset-settings').onclick = () => { loadVideoParameters(); toast('已還原影片配方，儲存後會成為預設'); };
   $('video-form').onsubmit = event => { event.preventDefault(); submitPrompt(); };
+  $('svi-form').onsubmit = event => { event.preventDefault(); submitPrompt(); };
+  $('svi-seed').oninput = () => {
+    const values = currentParameters();
+    if ($('svi-seed').value === '') delete values.seed;
+    else if ($('svi-seed').checkValidity()) values.seed = Number($('svi-seed').value);
+    state.generation.svi_image = values;
+  };
+  $('svi-example').onclick = () => {
+    promptInput.value = 'A small orange cat sits on a wooden table beside a window. The cat slowly turns its head toward the warm sunlight. Fixed camera, natural movement.';
+    $('svi-prompt-2').value = 'The same orange cat gently raises one front paw and stretches, staying on the wooden table. Keep the camera and lighting consistent.';
+    $('svi-prompt-3').value = 'The cat lowers its paw, settles comfortably on the table and slowly blinks toward the camera. End on a calm, steady frame.';
+    resizePrompt(); setCreationOpen(false); promptInput.focus();
+  };
 }
 
 function artworkMarkup(path) {
@@ -140,8 +159,8 @@ function jobTime(value) {
 
 function renderSharedJob(job, cancelling = false) {
   const origin = job.origin || {};
-  const { negative = '', ...parameters } = job.parameters || {};
-  const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper 群組', nsfw_adv: 'NSFW Adv 群組', h3_image: '圖片生影片' };
+  const { negative = '', segment_prompts, ...parameters } = job.parameters || {};
+  const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper 群組', nsfw_adv: 'NSFW Adv 群組', h3_image: '圖片生影片', svi_image: '高耗能圖片轉影片模式' };
   const endLabel = job.status === 'cancelled' ? '終止' : job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
     <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span>${['queued', 'running', 'cancelling'].includes(job.status) ? `<button type="button" class="cancel-button" data-cancel-job="${escapeHtml(job.id)}"${cancelling || job.status === 'cancelling' ? ' disabled' : ''}>${cancelling || job.status === 'cancelling' ? '終止中…' : '■ 強制終止'}</button>` : ''}</div>
@@ -153,7 +172,7 @@ function renderSharedJob(job, cancelling = false) {
 
 function setFollowingLatest(follow) {
   followingLatest = follow;
-  $('latest-message').classList.toggle('hidden', follow);
+  $('latest-message').classList.toggle('hidden', follow || !currentFeed().childElementCount);
 }
 
 function scrollFeed(force = false) {
@@ -193,6 +212,7 @@ function setupConversationScroll() {
   const observer = new ResizeObserver(() => scrollFeed());
   observer.observe(feed);
   observer.observe(videoFeed);
+  observer.observe($('video-results-svi_image'));
   observer.observe(conversation);
 }
 
@@ -222,7 +242,7 @@ function setSidebarCollapsed(collapsed) {
 }
 
 function resizePrompt() {
-  for (const input of [promptInput, $('negative-prompt')]) {
+  for (const input of [promptInput, $('svi-prompt-2'), $('svi-prompt-3'), $('negative-prompt')]) {
     input.style.height = '0px';
     const maximum = parseFloat(getComputedStyle(input).maxHeight);
     input.style.height = Math.min(input.scrollHeight, maximum) + 'px';
@@ -291,7 +311,9 @@ function renderPresets() {
     if (preset && !state.generating) {
       setSidebarOpen(false); promptInput.value = preset.prompt;
       if (state.studioMode === 'image') state.generation[parameterKey()] = { ...currentParameters(), negative: preset.negative || '' };
-      renderParameters(); submitPrompt();
+      renderParameters();
+      if (state.studioMode === 'svi_image') { resizePrompt(); promptInput.focus(); }
+      else submitPrompt();
     }
   }));
 }
@@ -302,7 +324,7 @@ function renderPreciseState() {
   $('precise-mode').setAttribute('aria-pressed', String(state.preciseMode));
 }
 
-function parameterKey() { return state.workflow; }
+function parameterKey() { return state.studioMode === 'svi_image' ? 'svi_image' : state.workflow; }
 function currentParameters() { return Object.fromEntries(Object.entries(state.generation[parameterKey()] || {}).filter(([, value]) => value !== null)); }
 
 function parameterFields() {
@@ -338,6 +360,7 @@ function renderParameters() {
   $('negative-prompt').classList.toggle('hidden', video);
   $('negative-label').classList.toggle('hidden', video);
   $('negative-prompt').value = video ? '' : values.negative || '';
+  $('negative-prompt').placeholder = state.studioMode === 'svi_image' ? '三段共用；留白沿用作者負面提示詞…' : '描述不希望出現的內容，可留白…';
   resizePrompt();
   $('recipe-lock').textContent = state.workflow === 'superduper'
     ? '配方固定：ComfyUI、雙 KSampler、APG、FreSca，以及四段 Impact Pack 局部細修。'
@@ -530,7 +553,7 @@ function openMobileConnection() {
 
 function appendUserMessage(text, images) {
   const node = document.createElement('article'); node.className = 'message user-message';
-  if (!images.length) {
+  if (!images.length || state.studioMode === 'svi_image') {
     const prompt = document.createElement('div'); prompt.className = 'reference-prompt'; prompt.textContent = text; node.appendChild(prompt);
   }
   if (images.length) {
@@ -558,19 +581,24 @@ function setBusy(value) {
 }
 
 async function submitPrompt() {
-  const video = state.studioMode === 'h3_image';
+  const svi = state.studioMode === 'svi_image', h3 = state.studioMode === 'h3_image', video = h3 || svi;
   if (!promptInput.reportValidity() || !$('negative-prompt').reportValidity()) return;
-  for (const input of $(video ? 'video-form' : 'generation-parameters').querySelectorAll('input, select')) if (!input.reportValidity()) return;
+  for (const input of $(svi ? 'svi-form' : h3 ? 'video-form' : 'generation-parameters').querySelectorAll('input, select')) if (!input.reportValidity()) return;
   if (state.generating) return;
-  const finalPrompt = promptInput.value;
+  const segments = svi ? [promptInput.value, $('svi-prompt-2').value, $('svi-prompt-3').value] : [];
+  if (svi && segments.some(text => !text.trim())) { toast('請完整填寫三段提示詞'); return; }
+  if (svi && ![$('svi-prompt-2'), $('svi-prompt-3')].every(input => input.reportValidity())) return;
+  const finalPrompt = svi ? segments.map((text, index) => `第 ${index + 1} 段：\n${text}`).join('\n\n') : promptInput.value;
   if (!finalPrompt.trim()) { toast('先寫下想法吧 ♡'); promptInput.focus(); return; }
   const images = [...state.images];
-  const workflow = video ? 'h3_image' : state.workflow;
-  const parameters = video ? videoParameters() : currentParameters();
-  if (!video) parameters.negative = $('negative-prompt').value;
-  if (video && (images.length < 1 || images.length > MAX_REFERENCE_IMAGES)) { toast('請選擇 1 至 4 張首幀圖片'); return; }
-  const lastImage = video && parameters.end_frame === 'custom' ? state.videoLastImage : null;
-  if (video && parameters.end_frame === 'custom') {
+  const workflow = video ? state.studioMode : state.workflow;
+  const parameters = h3 ? videoParameters() : currentParameters();
+  if (!h3 && (!svi || $('negative-prompt').value)) parameters.negative = $('negative-prompt').value;
+  if (svi) parameters.segment_prompts = segments;
+  if (svi && images.length !== 1) { toast('請選擇一張首幀圖片'); return; }
+  if (h3 && (images.length < 1 || images.length > MAX_REFERENCE_IMAGES)) { toast('請選擇 1 至 4 張首幀圖片'); return; }
+  const lastImage = h3 && parameters.end_frame === 'custom' ? state.videoLastImage : null;
+  if (h3 && parameters.end_frame === 'custom') {
     if (!lastImage) { toast('請選擇尾幀圖片，或將尾幀約束改為不使用'); return; }
   }
   if (workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
@@ -579,6 +607,7 @@ async function submitPrompt() {
   appendUserMessage(finalPrompt, lastImage ? [...images, lastImage] : images);
   const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.innerHTML = '<span class="spinner"></span><span>正在準備模型…</span>'; target.appendChild(progress);
   state.resultTarget = target; state.currentProgress = progress; promptInput.value = ''; resizePrompt();
+  if (svi) { $('svi-prompt-2').value = ''; $('svi-prompt-3').value = ''; resizePrompt(); }
   if (!video) state.images = [];
   renderImageTray(); setBusy(true); scrollFeed(true);
   try { await invoke('generate_images', { prompt: finalPrompt, images, lastImage, workflow, parameters, preciseMode: video ? false : state.preciseMode }); }
@@ -596,21 +625,22 @@ function renderImageTray() {
     tray.appendChild(wrap);
   });
   if (!state.images.length) { $('batch-label').textContent = ''; return; }
-  $('batch-label').textContent = state.studioMode === 'h3_image' ? `${state.images.length} 張首幀 · 每張各自生成一支影片 · ${$('video-crop').value === 'center' ? '置中裁切' : '拉伸填滿'}` : state.workflow === 'reference'
+  $('batch-label').textContent = state.studioMode === 'svi_image' ? '1 張首幀 · 三段續接 · 置中裁切' : state.studioMode === 'h3_image' ? `${state.images.length} 張首幀 · 每張各自生成一支影片 · ${$('video-crop').value === 'center' ? '置中裁切' : '拉伸填滿'}` : state.workflow === 'reference'
     ? `${state.images.length} 張參考圖${state.images.length >= 2 ? ' · 會融合參考' : ''}`
     : `${state.images.length} 張圖片${state.images.length > 1 ? ' · 會依序修改' : ''}`;
 }
 
 async function chooseImages() {
   try {
-    const mode = state.studioMode, video = mode === 'h3_image';
-    const picked = await open({ multiple: true, directory: false, title: video ? '選擇影片首幀（最多 4 張）' : '選擇要修改的圖片', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
+    const mode = state.studioMode, video = mode === 'h3_image', svi = mode === 'svi_image';
+    const picked = await open({ multiple: !svi, directory: false, title: svi ? '選擇一張影片首幀' : video ? '選擇影片首幀（最多 4 張）' : '選擇要修改的圖片', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
     if (!picked) return;
     if (mode !== state.studioMode) return;
     const paths = Array.isArray(picked) ? picked : [picked];
+    if (svi) state.images = [];
     for (const file of paths) {
-      if (state.images.length >= MAX_REFERENCE_IMAGES) {
-        toast(`一次最多 ${MAX_REFERENCE_IMAGES} 張圖片`);
+      if (state.images.length >= (svi ? 1 : MAX_REFERENCE_IMAGES)) {
+        toast(`一次最多 ${svi ? 1 : MAX_REFERENCE_IMAGES} 張圖片`);
         break;
       }
       if (!state.images.includes(file)) state.images.push(file);
@@ -639,7 +669,7 @@ listen('generation-progress', event => {
   if (result) {
     state.jobs.push(result);
     const card = document.createElement('article'); card.className = 'message assistant-result';
-    const title = document.createElement('div'); title.className = 'assistant-label'; title.textContent = data.video ? '▷ 有聲影片完成' : '✿ 圖片完成'; card.appendChild(title);
+    const title = document.createElement('div'); title.className = 'assistant-label'; title.textContent = data.video ? '▷ 影片完成' : '✿ 圖片完成'; card.appendChild(title);
     const img = document.createElement(data.video ? 'video' : 'img'); img.className = data.video ? 'result-video' : 'result-image'; img.src = convertFileSrc(result);
     if (data.video) { img.controls = true; img.playsInline = true; img.preload = 'metadata'; } else img.alt = '生成圖片';
     card.appendChild(img);
@@ -656,7 +686,7 @@ listen('generation-progress', event => {
     } else if (!result && !data.error) {
       state.currentProgress.innerHTML = `<span class="spinner"></span><span>${escapeHtml(data.message)}</span>`;
     } else {
-      state.currentProgress.innerHTML = `<span class="spinner"></span><span>已完成 ${data.index}/${data.total} 個輸出…</span>`;
+      state.currentProgress.innerHTML = `<span class="spinner"></span><span>${escapeHtml(data.message || `已完成 ${data.index}/${data.total} 個輸出…`)}</span>`;
     }
   }
   if (target === currentFeed()) scrollFeed();
@@ -732,8 +762,12 @@ async function init() {
   });
   promptInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitPrompt(); } });
   promptInput.addEventListener('input', resizePrompt);
+  for (const id of ['svi-prompt-2', 'svi-prompt-3']) $(id).addEventListener('input', resizePrompt);
   $('negative-prompt').addEventListener('input', () => {
-    state.generation[parameterKey()] = { ...currentParameters(), negative: $('negative-prompt').value };
+    const values = currentParameters();
+    if (state.studioMode === 'svi_image' && !$('negative-prompt').value) delete values.negative;
+    else values.negative = $('negative-prompt').value;
+    state.generation[parameterKey()] = values;
     resizePrompt();
   });
   window.addEventListener('resize', resizePrompt);

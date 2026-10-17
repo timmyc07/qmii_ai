@@ -180,7 +180,7 @@ function renderJob(job) {
   let card = cards.get(job.id);
   if (!card) {
     card = document.createElement('article'); card.className = 'job'; card.dataset.id = job.id;
-    const { negative = '', ...parameters } = job.parameters || {};
+    const { negative = '', segment_prompts, ...parameters } = job.parameters || {};
     const user = document.createElement('div'); user.className = 'user-message';
     if (job.sources.length) {
       for (const url of job.sources) { const img = document.createElement('img'); img.src = url; img.alt = '已送出的圖片'; user.append(img); }

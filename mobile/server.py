@@ -23,7 +23,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .settings import Settings, SettingsStore, source_revision
-from .parameters import Parameters, validate_parameters, validate_h3_sources
+from .parameters import Parameters, validate_parameters, validate_h3_sources, validate_svi_sources
 from .cancellation import CancellationFailed, TaskControl
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +52,7 @@ class JobOrigin(BaseModel):
 class JobInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     prompt: str = Field(min_length=1, max_length=8000)
-    workflow: str = Field(pattern='^(quick|reference|superduper|nsfw_adv|h3_image)$')
+    workflow: str = Field(pattern='^(quick|reference|superduper|nsfw_adv|h3_image|svi_image)$')
     parameters: Parameters | None = None
     precise_mode: bool = False
     origin: JobOrigin = Field(default_factory=JobOrigin)
@@ -255,6 +255,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                     cancelled = control.cancelled.is_set()
                     store.update(job_id, 'cancelled' if cancelled else 'completed',
                                  '任務已終止，已完成的輸出仍保留。' if cancelled else
+                                 '影片完成，生成資源已釋放，可以播放與下載了。' if row['workflow'] == 'svi_image' else
                                  '影片完成，可以播放與下載了。' if row['workflow'].startswith('h3_') else '圖片完成，可以下載了。', results)
                 LOG.info('Job finished id=%s count=%s cancelled=%s', job_id, len(results), cancelled)
             except Exception as exc:
@@ -424,7 +425,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         store.session(request, mutate=True)
         if stop.is_set():
             raise HTTPException(503, '電腦服務已停止接收任務，請檢查主機狀態後重新連線。')
-        value = await parse_json(request, JobInput)
+        value = await parse_json(request, JobInput, limit=160_000)
         if not value.prompt.strip():
             raise HTTPException(422, '請輸入提示詞。')
         if value.workflow == 'reference' and len(value.images) < 2:
@@ -435,6 +436,10 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                                              else {k: v for k, v in defaults.items() if v is not None}, value.workflow)
             if value.workflow == 'h3_image':
                 validate_h3_sources(parameters, value.images, value.last_image)
+            elif value.workflow == 'svi_image':
+                validate_svi_sources(parameters, value.images, value.last_image)
+                if value.precise_mode:
+                    raise ValueError('高耗能影片模式使用三段提示詞，不套用圖片精準模式。')
             elif value.last_image is not None:
                 raise ValueError('尾幀圖片僅適用於圖片生影片模式。')
         except ValueError as exc:

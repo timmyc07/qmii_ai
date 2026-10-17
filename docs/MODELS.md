@@ -1,5 +1,7 @@
 # 模型
 
+Wan 2.2 SVI 高耗能模式使用獨立的 A14B Q8 雙模型與四個 LoRA；安裝及檔案清單見 [SVI 說明](SVI.md)。與下列基準比較用的 TI2V-5B 是不同配方。
+
 千迷AI使用 `D:\AI\Qwen-Image-2.1-Turbo` 與 `D:\AI\QwenImage21SuperDuper`；模型不搬入 repository、不提交 Git，也不打包進 EXE。
 
 Wan 2.2 TI2V-5B 僅用於 [本機基準比較](BENCHMARKS.md)，由 `tools/install_wan.py` 下載並校驗官方 5B FP16、UMT5 FP8 與 Wan 2.2 VAE；不加入日常 UI 或改變 H3 的影音／首尾幀用途。
