@@ -138,13 +138,13 @@ function jobTime(value) {
   return value ? new Date(value * 1000).toLocaleString('zh-TW', { hour12: false }) : '未記錄';
 }
 
-function renderSharedJob(job) {
+function renderSharedJob(job, cancelling = false) {
   const origin = job.origin || {};
   const { negative = '', ...parameters } = job.parameters || {};
   const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper 群組', nsfw_adv: 'NSFW Adv 群組', h3_image: '圖片生影片' };
   const endLabel = job.status === 'cancelled' ? '終止' : job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
-    <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span></div>
+    <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span>${['queued', 'running', 'cancelling'].includes(job.status) ? `<button type="button" class="cancel-button" data-cancel-job="${escapeHtml(job.id)}"${cancelling || job.status === 'cancelling' ? ' disabled' : ''}>${cancelling || job.status === 'cancelling' ? '終止中…' : '■ 強制終止'}</button>` : ''}</div>
     <p class="job-meta">提交：${escapeHtml(jobTime(job.created))}<br>開始：${escapeHtml(job.started ? jobTime(job.started) : '尚未開始／未記錄')} · ${endLabel}：${escapeHtml(job.finished ? jobTime(job.finished) : '尚未結束／未記錄')}</p>
     <dl class="job-origin"><dt>平台</dt><dd>${escapeHtml(origin.platform || '未記錄')}</dd><dt>設備</dt><dd>${escapeHtml(origin.device || '未記錄')}</dd><dt>使用者（來源回報）</dt><dd>${escapeHtml(origin.user || '未記錄')}</dd><dt>設備識別碼</dt><dd>${escapeHtml(origin.device_id || '未記錄')}</dd><dt>任務編號</dt><dd>${escapeHtml(job.id)}</dd></dl>
     <p class="job-meta">參數：${escapeHtml(JSON.stringify(parameters))}</p><details data-job="${escapeHtml(job.id)}"><summary>查看${job.workflow === 'h3_image' ? '完整提示詞' : '正向／負面提示詞'}</summary><b>正向提示詞</b><p class="job-prompt">${escapeHtml(job.prompt || '此舊任務未保留提示詞。')}</p>${job.workflow === 'h3_image' ? '' : `<b>負面提示詞</b><p class="job-prompt">${escapeHtml(negative || '未填寫')}</p>`}</details>
@@ -542,9 +542,9 @@ function appendUserMessage(text, images) {
 
 function setBusy(value) {
   state.generating = value; $('send').disabled = value; $('upload-images').disabled = value;
-  state.currentJobId = null; state.cancelling = false;
+  state.currentJobId = null; state.cancelling = false; state.cancelSent = false;
   $('cancel-generation').classList.toggle('hidden', !value);
-  $('cancel-generation').disabled = true;
+  $('cancel-generation').disabled = !value;
   $('cancel-generation').textContent = '■ 強制終止';
   $('video-last-upload').disabled = value;
   $('workflow-mode').disabled = value;
@@ -619,9 +619,21 @@ async function chooseImages() {
   } catch (e) { toast(`選擇圖片失敗：${e}`); }
 }
 
+async function cancelGeneration() {
+  if (!state.generating || state.cancelSent) return;
+  state.cancelling = true; $('cancel-generation').disabled = true; $('cancel-generation').textContent = '終止中…';
+  if (!state.currentJobId) return;
+  state.cancelSent = true;
+  try { await invoke('cancel_generation', { jobId: state.currentJobId }); }
+  catch (error) { state.cancelling = false; state.cancelSent = false; $('cancel-generation').disabled = false; $('cancel-generation').textContent = '■ 強制終止'; toast(`無法終止：${error}`); }
+}
+
 listen('generation-progress', event => {
   const data = event.payload;
-  if (data.jobId) { state.currentJobId = data.jobId; $('cancel-generation').disabled = state.cancelling; }
+  if (state.generating && data.jobId && !data.done) {
+    state.currentJobId = data.jobId;
+    if (state.cancelling) cancelGeneration();
+  }
   const result = data.video || data.image;
   const target = state.resultTarget || feed;
   if (result) {
@@ -657,6 +669,7 @@ async function init() {
   $('manage-presets').onclick = openPresetManager;
   $('shared-jobs').onclick = () => {
     let closed = false, refreshTimer;
+    const cancelling = new Set();
     openModal('共用任務', '<div id="shared-job-list" role="status">正在讀取主機佇列…</div>', () => { closed = true; clearTimeout(refreshTimer); });
     const refresh = async () => {
       try {
@@ -664,10 +677,20 @@ async function init() {
         const list = $('shared-job-list');
         if (closed || !list) return;
         const expanded = new Set([...list.querySelectorAll('details[open]')].map(node => node.dataset.job));
-        list.innerHTML = jobs.length ? [...jobs].reverse().map(renderSharedJob).join('') : '目前沒有任務。';
+        list.innerHTML = jobs.length ? [...jobs].reverse().map(job => renderSharedJob(job, cancelling.has(job.id))).join('') : '目前沒有任務。';
         list.querySelectorAll('details').forEach(node => { node.open = expanded.has(node.dataset.job); });
-        refreshTimer = setTimeout(refresh, 5000);
+        clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 5000);
       } catch (error) { const list = $('shared-job-list'); if (list && !closed) { list.textContent = String(error); refreshTimer = setTimeout(refresh, 5000); } }
+    };
+    $('shared-job-list').onclick = async event => {
+      const button = event.target.closest('[data-cancel-job]');
+      if (!button || button.disabled) return;
+      const jobId = button.dataset.cancelJob;
+      cancelling.add(jobId); button.disabled = true; button.textContent = '終止中…';
+      try { await invoke('cancel_generation', { jobId }); }
+      catch (error) { toast(`無法終止：${error}`); }
+      finally { cancelling.delete(jobId); }
+      if (!closed) await refresh();
     };
     refresh();
   };
@@ -685,12 +708,7 @@ async function init() {
   $('open-output').onclick = async () => { try { await invoke('open_output_folder'); } catch (e) { toast(`無法開啟作品集：${e}`); } };
   $('upload-images').onclick = chooseImages;
   $('send').onclick = submitPrompt;
-  $('cancel-generation').onclick = async () => {
-    if (!state.currentJobId || state.cancelling) return;
-    state.cancelling = true; $('cancel-generation').disabled = true; $('cancel-generation').textContent = '終止中…';
-    try { await invoke('cancel_generation', { jobId: state.currentJobId }); }
-    catch (error) { state.cancelling = false; $('cancel-generation').disabled = false; $('cancel-generation').textContent = '■ 強制終止'; toast(`無法終止：${error}`); }
-  };
+  $('cancel-generation').onclick = cancelGeneration;
   setupWorkflowPicker();
   $('creation-toggle').onclick = () => setCreationOpen(!$('app-shell').classList.contains('creation-open'));
   $('creation-close').onclick = () => setCreationOpen(false);

@@ -36,8 +36,8 @@ const { chromium } = require('playwright');
             if (name === 'load_settings') return { presets: [], preciseMode: false };
             if (name === 'save_settings') return { ...args.settings, revision: 'saved' };
             if (name === 'generate_images') { test.generation = args; return; }
-            if (name === 'cancel_generation') { test.cancelled = args.jobId; return; }
-            if (name === 'studio_jobs') return { jobs: [{ id: 'fixture', workflow: 'quick', prompt: '其他設備提交', message: '已排隊', created: 1792000000, started: 1792000001, finished: 1792000010, origin: { platform: 'Windows 桌面', device: '<測試電腦>', user: '小迷', device_id: 'fixture-device' }, results: [] }] };
+            if (name === 'cancel_generation') { test.cancelled = args.jobId; test.sharedStatus = 'cancelled'; return; }
+            if (name === 'studio_jobs') return { jobs: [{ id: 'b'.repeat(32), status: test.sharedStatus || 'running', workflow: 'quick', prompt: '其他設備提交', message: '已排隊', created: 1792000000, started: 1792000001, finished: 1792000010, origin: { platform: 'Windows 桌面', device: '<測試電腦>', user: '小迷', device_id: 'fixture-device' }, results: [] }] };
             if (name === 'mobile_status') {
               if (test.fail) throw new Error('Test status failure');
               return test.info;
@@ -63,6 +63,8 @@ const { chromium } = require('playwright');
     assert.match(await page.locator('#shared-job-list').innerText(), /小迷/);
     assert.match(await page.locator('#shared-job-list').innerText(), /<測試電腦>/);
     assert.match(await page.locator('#shared-job-list').innerText(), /提交：/);
+    assert.equal(await page.locator('[data-cancel-job]').count(), 1);
+    assert.equal(await page.locator('[data-cancel-job]').isEnabled(), true);
     await page.locator('#shared-job-list summary').click();
     assert.match(await page.locator('.job-prompt').first().innerText(), /其他設備提交/);
     assert.equal(await page.locator('.job-prompt').nth(1).innerText(), '未填寫');
@@ -71,6 +73,9 @@ const { chromium } = require('playwright');
       assert.equal(await page.locator('.modal').evaluate(el => el.scrollWidth <= el.clientWidth), true);
       if (width !== 360) await page.screenshot({ path: path.join(__dirname, `../.runtime/shared-jobs-${width}.png`), fullPage: true });
     }
+    await page.click('[data-cancel-job]');
+    await page.waitForFunction(() => window.testMobile.cancelled === 'b'.repeat(32));
+    await page.waitForSelector('[data-cancel-job]', { state: 'detached' });
     await page.keyboard.press('Escape');
     for (const width of [1280, 390, 360]) {
       await page.setViewportSize({ width, height: 820 });
@@ -156,9 +161,16 @@ const { chromium } = require('playwright');
     assert.ok(!('negative' in submitted.parameters));
     assert.equal(await page.locator('#video-results-h3_image .user-message .reference-prompt').count(), 0);
     assert.equal(await page.locator('#video-results-h3_image .user-message img').count(), 1);
-    await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1, message: '正在生成', done: false } }));
     assert.equal(await page.locator('#cancel-generation').isVisible(), true);
+    assert.equal(await page.locator('#cancel-generation').isEnabled(), true);
     await page.click('#cancel-generation');
+    assert.equal(await page.evaluate(() => window.testMobile.cancelled), 'b'.repeat(32));
+    assert.equal(await page.locator('#cancel-generation').isDisabled(), true);
+    await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1, message: '正在生成', done: false } }));
+    await page.waitForFunction(() => window.testMobile.cancelled === 'a'.repeat(32));
+    const cancelCount = await page.evaluate(() => window.testMobile.calls.filter(name => name === 'cancel_generation').length);
+    await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1, message: '正在生成', done: false } }));
+    assert.equal(await page.evaluate(() => window.testMobile.calls.filter(name => name === 'cancel_generation').length), cancelCount);
     assert.equal(await page.evaluate(() => window.testMobile.cancelled), 'a'.repeat(32));
     assert.equal(await page.locator('#cancel-generation').isDisabled(), true);
     await page.click('[data-studio-mode="image"]');
