@@ -4,6 +4,7 @@ import platform
 import uuid
 import http.cookiejar
 import json
+import re
 from pathlib import Path
 import secrets
 import subprocess
@@ -11,6 +12,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlencode
 
 from .settings import ROOT, SettingsStore, source_revision
 
@@ -44,10 +46,14 @@ def desktop_origin():
 
 
 class StudioClient:
-    def __init__(self, url=URL, code_path=None):
+    def __init__(self, url=URL, code_path=None, member=False):
         self.url = url
+        self.member = member
         self.code_path = Path(code_path or ROOT / '.runtime' / 'mobile' / 'access-code.txt')
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.cookies = http.cookiejar.LWPCookieJar(str(self.code_path.parent / 'desktop-session.cookies')) if member else http.cookiejar.CookieJar()
+        if member and Path(self.cookies.filename).is_file():
+            self.cookies.load(ignore_discard=True)
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookies))
         self.csrf = ''
 
     def request(self, path, value=None, raw=None, method=None):
@@ -57,7 +63,10 @@ class StudioClient:
                                                   'Content-Type': 'application/octet-stream' if raw is not None else 'application/json'})
         try:
             with self.opener.open(request, timeout=120 if path == '/api/storage' else 15) as response:
-                return json.load(response)
+                value = json.load(response)
+                if self.member and path in ('/api/membership/login', '/api/membership/register', '/api/logout'):
+                    self.cookies.save(ignore_discard=True)
+                return value
         except urllib.error.HTTPError as exc:
             try:
                 detail = json.load(exc).get('detail', '工作室請求失敗。')
@@ -73,6 +82,12 @@ class StudioClient:
             # The existing lifecycle script registers ownership for safe drain
             # and can subsequently be restarted with the HTTPS tunnel enabled.
             service_script('start-mobile.ps1')
+        if self.member:
+            session = self.request('/api/session')
+            if session.get('api_version') != 8 or session.get('source_revision') != source_revision():
+                raise RuntimeError('工作室服務版本已變更，請先在手機連線中重新啟動服務。')
+            self.csrf = session['csrf']
+            return
         code = self.code_path.read_text(encoding='utf-8').strip()
         self.csrf = self.request('/api/login', {'code': code})['csrf']
         session = self.request('/api/session')
@@ -100,7 +115,7 @@ def main():
     if action == 'load_settings':
         emit(SettingsStore().read())
         return
-    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel', 'import_svi_lora', 'connect_drive', 'save_drive', 'studio_tools') else {}
+    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel', 'import_svi_lora', 'connect_drive', 'save_drive', 'studio_tools', 'membership') else {}
     if action == 'save_settings':
         emit(SettingsStore().save(payload))
         return
@@ -112,7 +127,10 @@ def main():
         from .drive import Drive
         emit(Drive(ROOT / '.runtime/mobile', ROOT / 'output').connect(payload['path']))
         return
-    client = StudioClient()
+    if action == 'membership':
+        membership_action(payload)
+        return
+    client = StudioClient(member=True) if action in ('generate', 'jobs', 'cancel') else StudioClient()
     client.connect()
     try:
         if action == 'studio_tools':
@@ -179,7 +197,37 @@ def main():
                         raise RuntimeError('主機連線中斷，請在共用任務中確認結果，避免重複提交。') from None
                     time.sleep(1)
     finally:
-        client.request('/api/logout', method='POST')
+        if action not in ('generate', 'jobs', 'cancel'):
+            client.request('/api/logout', method='POST')
+
+
+def membership_action(payload):
+    action, value = payload['action'], dict(payload.get('value', {}))
+    routes = {'config': ('GET', '/api/membership'), 'me': ('GET', '/api/membership/me'),
+              'login': ('POST', '/api/membership/login'), 'register': ('POST', '/api/membership/register'),
+              'logout': ('POST', '/api/logout'), 'password': ('POST', '/api/membership/password'),
+              'reset': ('POST', '/api/membership/reset'), 'ledger': ('GET', '/api/membership/ledger'),
+              'members': ('GET', '/api/admin/members'), 'audit': ('GET', '/api/admin/audit'),
+              'settings': ('PUT', '/api/admin/membership'), 'bootstrap': ('POST', '/api/membership/bootstrap')}
+    member_id = value.pop('id', '')
+    if action in ('update', 'credits', 'issue_reset'):
+        if not re.fullmatch('[a-f0-9]{32}', member_id):
+            raise ValueError('會員編號無效。')
+        routes[action] = ('PUT' if action == 'update' else 'POST', '/api/admin/members/' + member_id +
+                          {'update': '', 'credits': '/credits', 'issue_reset': '/reset'}[action])
+    if action not in routes:
+        raise ValueError('不支援的會員操作。')
+    method, path = routes[action]
+    client = StudioClient(member=action not in ('bootstrap', 'config'))
+    if action not in ('login', 'register', 'reset'):
+        client.connect()
+    if method == 'GET' and value:
+        path += '?' + urlencode(value)
+    try:
+        emit(client.request(path, value if method != 'GET' else None, method=method))
+    finally:
+        if action in ('bootstrap', 'config'):
+            client.request('/api/logout', method='POST')
 
 
 if __name__ == '__main__':

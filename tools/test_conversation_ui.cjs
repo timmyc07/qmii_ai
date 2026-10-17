@@ -7,7 +7,7 @@ const { chromium } = require('playwright');
 (async () => {
   const source = path.join(__dirname, '..', 'src');
   const server = http.createServer((request, response) => {
-    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css' }[request.url];
+    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css', '/membership.js': 'membership.js', '/membership.css': 'membership.css' }[request.url];
     if (!file) return response.writeHead(404).end();
     response.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8');
     response.end(fs.readFileSync(path.join(source, file)));
@@ -24,6 +24,10 @@ const { chromium } = require('playwright');
       window.testGenerations = [];
       window.__TAURI__ = {
         core: { convertFileSrc: value => value, invoke: async (name, value) => {
+          if (name === 'membership') {
+            if (value.action === 'config') return { initialized: true, registration_open: true, image_points: 3, video_points: 10 };
+            if (value.action === 'me') return { member: { id: 'a'.repeat(32), name: '測試會員', email: 'test@example.com', role: 'admin', balance: 1000 } };
+          }
           if (name === 'load_settings') return structuredClone(settings);
           if (name === 'save_settings') { window.testSavedSettings = value.settings; settings = structuredClone({ ...value.settings, revision: 'saved' }); return structuredClone(settings); }
           if (name === 'generate_images') { window.testGenerations.push(value); return; }
@@ -127,6 +131,16 @@ const { chromium } = require('playwright');
       assert.equal(layout.fits, true); assert.ok(layout.bottom <= layout.height); assert.equal(layout.scrolls, true); assert.ok(layout.transcript >= 24);
       await page.screenshot({ path: path.join(__dirname, `../.runtime/separate-prompts-${viewport.width}.png`), fullPage: true });
     }
+    await page.reload();
+    await page.fill('#prompt', '扣點查詢期間不重複提交');
+    await page.evaluate(() => {
+      window.creditChecks = 0;
+      window.qianmiMembership.ensureCredit = () => new Promise(resolve => { window.creditChecks++; window.releaseCredits = resolve; });
+      submitPrompt(); submitPrompt();
+    });
+    assert.equal(await page.evaluate(() => window.creditChecks), 1);
+    await page.evaluate(() => window.releaseCredits(3));
+    await page.waitForFunction(() => window.testGenerations.length === 1);
     assert.deepEqual(errors, []);
     console.log('Conversation UI passed: Turbo and ComfyUI groups, parameters, responsive layout.');
   } finally {

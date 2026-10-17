@@ -253,7 +253,7 @@ class H3Test(unittest.TestCase):
                 db.execute('ALTER TABLE jobs DROP COLUMN last_image')
                 db.execute('INSERT INTO jobs (id,status,workflow,sources,results,parameters) VALUES (?,?,?,?,?,?)',
                            (job_id, 'queued', 'h3_image', json.dumps([first, last]), '[]', '{"end_frame":"custom"}'))
-                db.execute('INSERT INTO uploads VALUES (?,?)', (last, 1))
+                db.execute('INSERT INTO uploads(id,created) VALUES (?,?)', (last, 1))
             tail = root / 'state/uploads' / f'{last}.png'
             tail.touch()
             store = Store(root / 'state', root / 'output')

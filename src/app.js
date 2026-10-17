@@ -698,7 +698,7 @@ async function submitPrompt() {
   const svi = state.studioMode === 'svi_image', h3 = state.studioMode === 'h3_image', video = h3 || svi;
   if (!promptInput.reportValidity() || !$('negative-prompt').reportValidity()) return;
   for (const input of $(svi ? 'svi-form' : h3 ? 'video-form' : 'generation-parameters').querySelectorAll('input, select')) if (!input.reportValidity()) return;
-  if (state.generating || state.sviImporting) return;
+  if (state.generating || state.sviImporting || state.checkingCredits) return;
   const segments = svi ? [promptInput.value, $('svi-prompt-2').value, $('svi-prompt-3').value] : [];
   if (svi && segments.some(text => !text.trim())) { toast('請完整填寫三段提示詞'); return; }
   if (svi && ![$('svi-prompt-2'), $('svi-prompt-3')].every(input => input.reportValidity())) return;
@@ -716,6 +716,10 @@ async function submitPrompt() {
     if (!lastImage) { toast('請選擇尾幀圖片，或將尾幀約束改為不使用'); return; }
   }
   if (workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
+  state.checkingCredits = true;
+  try { await window.qianmiMembership.ensureCredit(workflow, images.length); }
+  catch (error) { toast(String(error.message || error)); return; }
+  finally { state.checkingCredits = false; }
   $('welcome').classList.add('hidden');
   const target = currentFeed();
   appendUserMessage(finalPrompt, lastImage ? [...images, lastImage] : images);
@@ -726,6 +730,7 @@ async function submitPrompt() {
   renderImageTray(); setBusy(true); scrollFeed(true);
   try { await invoke('generate_images', { prompt: finalPrompt, images, lastImage, workflow, parameters, preciseMode: video ? false : state.preciseMode }); }
   catch (e) { progress.className = 'message error-card'; progress.textContent = `工作無法啟動：${e}`; setBusy(false); toast('生成啟動失敗'); }
+  finally { window.qianmiMembership.refresh().catch(() => {}); }
 }
 
 function renderImageTray() {

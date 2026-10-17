@@ -71,7 +71,8 @@ class DesktopBridgeTest(unittest.TestCase):
                     self.assertTrue(report['done'])
                     self.assertIsNone(report['error'])
                     self.assertEqual(report['jobId'], job['id'])
-                self.assertEqual(client.request.call_args_list[-1].args, ('/api/logout',))
+                client_class.assert_called_once_with(member=True)
+                self.assertNotIn('/api/logout', [call.args[0] for call in client.request.call_args_list])
 
     def test_video_bridge_uploads_tail_separately_and_reports_all_results(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -99,7 +100,8 @@ class DesktopBridgeTest(unittest.TestCase):
             self.assertTrue(all(report['video'] == str(ROOT / 'output' / job['result_files'][index]) and not report['done']
                                 for index, report in enumerate(reports[:4])))
             self.assertTrue(reports[-1]['done'])
-            self.assertEqual(client.request.call_args_list[-1].args, ('/api/logout',))
+            client_class.assert_called_once_with(member=True)
+            self.assertNotIn('/api/logout', [call.args[0] for call in client.request.call_args_list])
 
     def test_history_bridge_resolves_daily_paths(self):
         job = dict(id='fixture', result_files=['2026-10-17/fixture_0.png'])
@@ -190,6 +192,19 @@ with patch('mobile.settings.SettingsStore.read', side_effect=RuntimeError('工�
                             break
                         time.sleep(.01)
                     self.assertEqual(received[0]['workflow'], 'quick')
+                    admin = desktop.request('/api/membership/bootstrap',
+                                            dict(email='admin@example.com', name='管理員', password='desktop test password'))
+                    desktop.request('/api/admin/members/' + admin['id'] + '/credits',
+                                    dict(amount=10, reason='測試', request_id='f' * 32))
+                    member = StudioClient(url, root / 'state' / 'access-code.txt', member=True)
+                    member.request('/api/membership/login', dict(email='admin@example.com', password='desktop test password'))
+                    restored = StudioClient(url, root / 'state' / 'access-code.txt', member=True)
+                    restored.connect()
+                    self.assertEqual(restored.request('/api/membership/me')['member']['balance'], 10)
+                    restored.request('/api/jobs', dict(prompt='會員桌面生成', workflow='quick', images=[], request_id='a' * 32))
+                    restored.request('/api/logout', method='POST')
+                    with self.assertRaisesRegex(RuntimeError, '登入'):
+                        StudioClient(url, root / 'state' / 'access-code.txt', member=True).connect()
                     desktop.request('/api/logout', method='POST')
                     browser.request('/api/logout', method='POST')
                 finally:

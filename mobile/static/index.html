@@ -10,21 +10,24 @@
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="stylesheet" href="/static/mobile.css">
+  <link rel="stylesheet" href="/static/membership.css">
   <title>千迷AI · 跨裝置工作室</title>
 </head>
 <body>
-  <header><a class="brand" href="/">✿ 千迷AI <span>跨裝置工作室</span></a><button id="logout" class="quiet hidden">登出</button></header>
+  <header><a class="brand" href="/">✿ 千迷AI <span>跨裝置工作室</span></a><button id="account-button" class="quiet">會員登入</button><button id="logout" class="quiet hidden">登出</button></header>
   <main id="login-view" class="login-view">
     <section class="login-card">
       <div class="flower" aria-hidden="true">✿</div>
       <p class="eyebrow">YOUR PRIVATE CREATIVE SPACE</p>
       <h1>把靈感，交給千迷AI</h1>
       <p>連上你的電腦，隨時隨地創作圖片與影片。</p>
-      <form id="login-form">
+      <button id="member-login" class="primary" type="button">登入／註冊會員</button>
+      <p id="member-price-note">照片每張 3 點、影片每部 10 點。請先登入會員。</p>
+      <details><summary>私人主機管理員連線</summary><form id="login-form">
         <label for="code">私人連線碼</label>
         <input id="code" name="code" type="password" autocomplete="current-password" required maxlength="128" placeholder="輸入電腦上顯示的連線碼">
         <button id="login-button" class="primary" type="submit">連接我的電腦 <span aria-hidden="true">↗</span></button>
-      </form>
+      </form></details>
       <p id="login-error" class="error" role="alert"></p>
       <small>圖片會傳至你的電腦處理。電腦需保持開機與連網。</small>
     </section>
@@ -76,5 +79,6 @@
   <dialog id="recipe-editor"><h2>生成配方</h2><p>套用提示詞、模式與參數後再送出；圖片與尾幀需重新選擇。</p><label for="recipe-name">配方名稱</label><input id="recipe-name" maxlength="100" placeholder="為目前設定命名"><div class="setting-actions"><button id="save-recipe" class="primary" type="button">儲存目前設定</button><button id="close-recipes" class="quiet" type="button">關閉</button></div><div id="recipe-list"></div></dialog>
   <div id="toast" role="status" class="toast hidden"></div>
   <script src="/static/mobile.js" defer></script>
+  <script src="/static/membership.js" defer></script>
 </body>
 </html>

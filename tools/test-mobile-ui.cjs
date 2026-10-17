@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
       response.setHeader('Content-Type', 'image/svg+xml');
       response.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="240"><rect width="160" height="240" fill="#dbcdf4"/><circle cx="110" cy="65" r="25" fill="#fff0c5"/><path d="M0 180L55 100L160 230V240H0" fill="#a59bc9"/></svg>'); return;
     }
-    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css' }[request.url];
+    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css', '/membership.js': 'membership.js', '/membership.css': 'membership.css' }[request.url];
     if (!file) { response.writeHead(404).end(); return; }
     response.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8');
     response.end(fs.readFileSync(path.join(source, file)));
@@ -34,6 +34,11 @@ const { chromium } = require('playwright');
           invoke: async (name, args) => {
             const test = window.testMobile;
             test.calls.push(name);
+            if (name === 'membership') {
+              if (args.action === 'config') return { initialized: true, registration_open: true, image_points: 3, video_points: 10 };
+              if (args.action === 'me') return { member: { id: 'a'.repeat(32), name: '測試會員', email: 'test@example.com', role: 'admin', balance: 1000 }, image_points: 3, video_points: 10 };
+              if (args.action === 'ledger') return { items: [] };
+            }
             if (name === 'load_settings') return structuredClone(settings);
             if (name === 'save_settings') { settings = structuredClone({ ...args.settings, revision: 'saved' }); return structuredClone(settings); }
             if (name === 'generate_images') { test.generation = args; return; }

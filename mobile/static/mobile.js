@@ -224,12 +224,20 @@ function showLogin() {
 }
 
 async function studio(session) {
+  clearTimeout(timer);
   csrf = session.csrf;
   $('login-view').classList.add('hidden'); $('studio').classList.remove('hidden'); $('logout').classList.remove('hidden');
   $('code').value = ''; applySettings(session);
   renderParameters();
+  const admin = session.owner || session.member?.role === 'admin';
+  for (const id of ['save-settings', 'new-preset', 'save-recipe', 'delete-preset']) $(id).classList.toggle('hidden', !admin);
   await refresh();
 }
+
+window.addEventListener('membership-session', event => {
+  if (event.detail) studio(event.detail).catch(error => toast(error.message)); else showLogin();
+});
+$('member-login').onclick = () => $('account-button').click();
 
 function renderJob(job) {
   let card = cards.get(job.id);
@@ -297,6 +305,7 @@ async function refresh() {
     $('cancel-generation').disabled = cancelling;
     $('cancel-generation').textContent = cancelling ? '終止中…' : '■ 強制終止';
     jobs.forEach(renderJob);
+    window.qianmiMembership?.refresh().catch(() => {});
     $('connection').textContent = '● 已連接私人工作室';
     if (!dirty && !$('preset-editor').open) {
       const current = await api('/api/settings');
@@ -368,6 +377,7 @@ $('composer').onsubmit = async event => {
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
   $('workflow').disabled = true; $('last-file').disabled = true;
   try {
+    if (window.qianmiMembership) await window.qianmiMembership.ensureCredit($('workflow').value, selected.length);
     for (const value of selected) {
       if (!value.id) value.id = (await api('/api/uploads', { method: 'POST', headers: { 'Content-Type': value.file.type || 'application/octet-stream' }, body: value.file })).id;
     }
@@ -387,7 +397,7 @@ $('composer').onsubmit = async event => {
     clearLastFrame();
     toast('已交給你的電腦處理。'); await refresh();
   } catch (error) { toast(error.message); }
-  finally { submitting = false; $('send').disabled = false; $('workflow').disabled = false; $('files').disabled = false; $('last-file').disabled = false; renderParameters(); $('send').textContent = '送出 ↑'; }
+  finally { submitting = false; $('send').disabled = false; $('workflow').disabled = false; $('files').disabled = false; $('last-file').disabled = false; renderParameters(); $('send').textContent = '送出 ↑'; window.qianmiMembership?.refresh().catch(() => {}); }
 };
 
 let recipeSource = null;
@@ -423,7 +433,7 @@ $('save-recipe').onclick = async () => {
   catch (error) { toast(error.message); }
 };
 
-$('logout').onclick = async () => { try { await api('/api/logout', { method: 'POST' }); showLogin(); } catch (error) { toast(error.message); } };
+$('logout').onclick = async () => { try { await api('/api/logout', { method: 'POST' }); showLogin(); await window.qianmiMembership?.refresh(); } catch (error) { toast(error.message); } };
 $('precise-mode').onchange = () => { dirty = true; $('settings-status').textContent = '尚未儲存'; };
 $('save-settings').onclick = () => saveSettings();
 $('reload-settings').onclick = async () => { try { applySettings(await api('/api/settings')); } catch (error) { toast(error.message); } };

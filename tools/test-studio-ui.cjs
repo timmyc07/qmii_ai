@@ -13,7 +13,11 @@ const { chromium } = require('playwright');
   let settings = { presets: [], preciseMode: false, generation: {}, revision: '' };
   const server = http.createServer((request, response) => {
     const reply = value => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(value)); };
-    if (request.url === '/api/session') return reply({ csrf: 'test', ...settings });
+    const member = { id: 'a'.repeat(32), name: '測試會員', email: 'test@example.com', role: 'admin', balance: 1000 };
+    if (request.url === '/api/session') return reply({ csrf: 'test', member, ...settings });
+    if (request.url === '/api/membership') return reply({ initialized: true, registration_open: true, image_points: 3, video_points: 10 });
+    if (request.url === '/api/membership/me') return reply({ member, image_points: 3, video_points: 10 });
+    if (request.url === '/api/membership/ledger?offset=0') return reply({ items: [] });
     if (request.url === '/api/jobs' && request.method === 'GET') return reply({ jobs });
     if (/^\/api\/jobs\/[^/]+\/cancel$/.test(request.url)) {
       const id = request.url.split('/')[3]; cancelled.push(id);
@@ -42,8 +46,9 @@ const { chromium } = require('playwright');
       }); return;
     }
     const file = request.url === '/' ? 'index.html' : request.url.replace('/static/', '');
-    const target = path.join(root, file);
-    if (!target.startsWith(root) || !fs.existsSync(target)) return response.writeHead(404).end();
+    const shared = ['membership.js', 'membership.css'].includes(file);
+    const target = path.join(shared ? path.join(__dirname, '..', 'src') : root, file);
+    if ((!shared && !target.startsWith(root)) || !fs.existsSync(target)) return response.writeHead(404).end();
     response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8');
     response.end(fs.readFileSync(target));
   });

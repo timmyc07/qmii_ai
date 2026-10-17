@@ -1,4 +1,4 @@
-"""Single-owner, authenticated HTTP gateway for the local GPU workstation."""
+"""Authenticated membership gateway for the local GPU workstation."""
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime
 import hashlib
@@ -29,6 +29,7 @@ from .cancellation import CancellationFailed, TaskControl
 from .drive import Drive, DriveSettings
 from .maintenance import CleanupInput, Maintenance, health, workflow_check
 from .recipes import RecipeInput, Recipes
+from .membership import Members, install_membership
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -134,6 +135,7 @@ class Store:
                 if legacy.is_dir() and not any(legacy.iterdir()):
                     legacy.rmdir()
                 db.execute('PRAGMA user_version=1')
+        self.members = Members(self.connect)
 
     def publish_results(self, job_id, directory, results, day, published):
         paths = []
@@ -167,12 +169,15 @@ class Store:
     def update(self, job_id, status, message, results=None):
         now = time.time()
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             db.execute("""UPDATE jobs SET status=?,message=?,updated=?,
                           started=CASE WHEN ?='running' THEN COALESCE(started,?) ELSE started END,
                           finished=CASE WHEN ? IN ('completed','failed','cancelled') THEN ? ELSE finished END,
                           results=COALESCE(?,results) WHERE id=?""",
                        (status, message, now, status, now, status, now,
                         json.dumps(results) if results is not None else None, job_id))
+            if status in ('completed', 'failed', 'cancelled'):
+                self.members.settle(db, job_id)
 
     def session(self, request, mutate=False):
         token = request.cookies.get('qianmi_session', '')
@@ -180,9 +185,20 @@ class Store:
         with self.connect() as db:
             row = db.execute('SELECT * FROM sessions WHERE id=? AND expires>?', (session_id, time.time())).fetchone()
         if not row:
-            raise HTTPException(401, '請先輸入私人連線碼。')
+            raise HTTPException(401, '請先登入會員或主機管理員。')
+        if row['member_id'] and not self.members.member(row['member_id'])['active']:
+            raise HTTPException(401, '會員帳號已停用，請聯絡管理員。')
         if mutate and not hmac.compare_digest(request.headers.get('x-qianmi-csrf', ''), row['csrf']):
             raise HTTPException(403, '工作階段驗證失敗，請重新整理。')
+        return row
+
+    def privileged(self, session):
+        return session['member_id'] is None or self.members.member(session['member_id'])['role'] == 'admin'
+
+    def authorize_job(self, job_id, session):
+        row = self.job(job_id)
+        if row['member_id'] != session['member_id'] and not self.privileged(session):
+            raise HTTPException(404, '找不到任務。')
         return row
 
     def job(self, job_id):
@@ -199,6 +215,7 @@ class Store:
         return dict(id=row['id'], status=row['status'], message=row['message'], created=row['created'],
                     prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
                     precise_mode=bool(row['precise_mode']),
+                    reserved_points=row['reserved_points'], settled=bool(row['settled']),
                     updated=row['updated'], started=row['started'], finished=row['finished'],
                     origin=json.loads(row['origin']),
                     sources=[f'/api/uploads/{value}' for value in sources], result_files=results,
@@ -240,6 +257,15 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             key = hashlib.sha256(path.relative_to(library).as_posix().encode()).hexdigest()
             found.append((key, path, path.stat().st_mtime))
         return sorted(found, key=lambda item: (-item[2], item[0]))
+
+    def member_artworks(session):
+        files = artworks()
+        if store.privileged(session):
+            return files
+        with store.connect() as db:
+            allowed = {name for row in db.execute('SELECT results FROM jobs WHERE member_id=?', (session['member_id'],))
+                       for name in json.loads(row['results'])}
+        return [item for item in files if item[1].relative_to(library).as_posix() in allowed]
     public_url = (public_url or os.environ.get('QIANMI_PUBLIC_URL', '')).rstrip('/')
     if public_url and (urlsplit(public_url).scheme != 'https' or not urlsplit(public_url).hostname):
         raise ValueError('QIANMI_PUBLIC_URL must be an HTTPS origin')
@@ -261,6 +287,9 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 with store.connect() as db:
                     row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
                 if row:
+                    if row['member_id'] and not store.members.member(row['member_id'])['active']:
+                        store.update(row['id'], 'cancelled', '會員帳號已停用，任務已取消並退點。')
+                        continue
                     control = controls[row['id']] = TaskControl()
                     store.update(row['id'], 'running', '正在準備電腦…')
             if not row:
@@ -333,7 +362,9 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @asynccontextmanager
     async def lifespan(app):
         with store.connect() as db:
-            db.execute("UPDATE jobs SET status='failed',message='電腦服務已重新啟動，請重新提交。',updated=?,finished=? WHERE status IN ('running','cancelling')", (time.time(), time.time()))
+            interrupted = db.execute("SELECT id FROM jobs WHERE status IN ('running','cancelling')").fetchall()
+        for row in interrupted:
+            store.update(row['id'], 'failed', '電腦服務已重新啟動，未完成輸出已退點，請重新提交。')
         store.cleanup()
         thread = threading.Thread(target=worker, daemon=True, name='qianmi-gpu-worker')
         app.state.worker = thread
@@ -352,6 +383,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
     app.state.drive = drive
+    install_membership(app, store, parse_json, public_url)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)
 
     @app.middleware('http')
@@ -379,7 +411,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             raise HTTPException(401, '連線碼不正確。')
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         with store.connect() as db:
-            db.execute('INSERT INTO sessions VALUES (?,?,?)',
+            db.execute('INSERT INTO sessions(id,csrf,expires) VALUES (?,?,?)',
                        (hashlib.sha256(token.encode()).hexdigest(), csrf, time.time() + 7 * 86400))
         response = JSONResponse({'csrf': csrf})
         response.set_cookie('qianmi_session', token, httponly=True,
@@ -391,7 +423,9 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @app.get('/api/session')
     def session(request: Request):
         row = store.session(request)
-        return dict(csrf=row['csrf'], api_version=8, source_revision=revision, **settings.read())
+        return dict(csrf=row['csrf'], api_version=8, source_revision=revision,
+                    member=store.members.public(store.members.member(row['member_id'])) if row['member_id'] else None,
+                    owner=row['member_id'] is None, **settings.read())
 
     @app.get('/api/settings')
     def read_settings(request: Request):
@@ -400,7 +434,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.put('/api/settings')
     async def save_settings(request: Request):
-        store.session(request, mutate=True)
+        store.admin(request, mutate=True)
         value = await parse_json(request, Settings, 4_000_000)
         try:
             return settings.save(value.model_dump())
@@ -409,28 +443,28 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.get('/api/drive')
     def drive_status(request: Request):
-        store.session(request)
+        store.admin(request)
         return drive.status()
 
     @app.get('/api/health')
     def workflow_health(request: Request):
-        store.session(request)
+        store.admin(request)
         return health()
 
     @app.get('/api/storage')
     def storage_status(request: Request):
-        store.session(request)
+        store.admin(request)
         return maintenance.storage()
 
     @app.post('/api/storage/preview')
     async def preview_cleanup(request: Request):
-        store.session(request, mutate=True)
+        store.admin(request, mutate=True)
         value = await parse_json(request, CleanupInput)
         return maintenance.preview(value.days)
 
     @app.post('/api/storage/cleanup')
     async def cleanup_storage(request: Request):
-        store.session(request, mutate=True)
+        store.admin(request, mutate=True)
         value = await parse_json(request, CleanupInput)
         try:
             return maintenance.cleanup(value.token)
@@ -444,7 +478,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.post('/api/recipes')
     async def save_recipe(request: Request):
-        store.session(request, mutate=True)
+        store.admin(request, mutate=True)
         value = await parse_json(request, RecipeInput, 160_000)
         try:
             return recipes.change(recipe=value)
@@ -453,21 +487,21 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.delete('/api/recipes/{recipe_id}')
     def delete_recipe(recipe_id: str, request: Request):
-        store.session(request, mutate=True)
+        store.admin(request, mutate=True)
         return recipes.change(recipe_id=identifier(recipe_id))
 
     @app.put('/api/drive')
     async def save_drive(request: Request):
-        store.session(request, mutate=True)
+        store.admin(request, mutate=True)
         value = await parse_json(request, DriveSettings)
         return drive.save(value)
 
     @app.get('/api/library')
     def list_library(request: Request, offset: int = 0):
-        store.session(request)
+        session = store.session(request)
         if offset < 0:
             raise HTTPException(422, '作品頁碼無效。')
-        files = artworks()
+        files = member_artworks(session)
         return dict(items=[dict(id=key, url=f'/api/library/{key}', created=created,
                                media_type='video' if path.suffix.lower() == '.mp4' else 'image')
                            for key, path, created in files[offset:offset + 40]],
@@ -475,10 +509,10 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.get('/api/library/{artwork_id}')
     def library_image(artwork_id: str, request: Request):
-        store.session(request)
+        session = store.session(request)
         if not re.fullmatch('[a-f0-9]{64}', artwork_id):
             raise HTTPException(404, '找不到作品。')
-        for key, path, _ in artworks():
+        for key, path, _ in member_artworks(session):
             if key == artwork_id:
                 return FileResponse(path, filename=f'千迷AI-{key[:12]}{path.suffix.lower()}',
                                     content_disposition_type='inline')
@@ -495,7 +529,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.post('/api/uploads')
     async def upload(request: Request):
-        store.session(request, mutate=True)
+        session = store.session(request, mutate=True)
         with store.connect() as db:
             count = db.execute('SELECT COUNT(*) FROM uploads WHERE created>?', (time.time() - 86400,)).fetchone()[0]
         if count >= 200:
@@ -518,12 +552,16 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         upload_id = secrets.token_hex(16)
         clean.save(store.state / 'uploads' / f'{upload_id}.png', format='PNG')
         with store.connect() as db:
-            db.execute('INSERT INTO uploads VALUES (?,?)', (upload_id, time.time()))
+            db.execute('INSERT INTO uploads(id,created,member_id) VALUES (?,?,?)', (upload_id, time.time(), session['member_id']))
         return {'id': upload_id, 'url': f'/api/uploads/{upload_id}'}
 
     @app.get('/api/uploads/{upload_id}')
     def uploaded_image(upload_id: str, request: Request):
-        store.session(request)
+        session = store.session(request)
+        with store.connect() as db:
+            row = db.execute('SELECT * FROM uploads WHERE id=?', (identifier(upload_id),)).fetchone()
+        if not row or (row['member_id'] != session['member_id'] and not store.privileged(session)):
+            raise HTTPException(404, '找不到圖片。')
         path = store.state / 'uploads' / f'{identifier(upload_id)}.png'
         if not path.is_file():
             raise HTTPException(404, '找不到圖片。')
@@ -531,7 +569,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.post('/api/jobs')
     async def submit(request: Request):
-        store.session(request, mutate=True)
+        session = store.session(request, mutate=True)
         if stop.is_set():
             raise HTTPException(503, '電腦服務已停止接收任務，請檢查主機狀態後重新連線。')
         value = await parse_json(request, JobInput, limit=160_000)
@@ -560,6 +598,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             db.execute('BEGIN IMMEDIATE')
             previous = db.execute('SELECT * FROM jobs WHERE request_id=?', (value.request_id,)).fetchone()
             if previous:
+                store.authorize_job(previous['id'], session)
                 return store.public_job(previous)
             if runner is None:
                 check = workflow_check(value.workflow, parameters, bool(value.images))
@@ -570,33 +609,38 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 raise HTTPException(429, '電腦目前排隊已滿，請稍後再試。')
             for upload_id in value.images + ([value.last_image] if value.last_image else []):
                 identifier(upload_id)
-                if not db.execute('SELECT id FROM uploads WHERE id=?', (upload_id,)).fetchone():
+                upload = db.execute('SELECT * FROM uploads WHERE id=?', (upload_id,)).fetchone()
+                if not upload or (upload['member_id'] != session['member_id'] and not store.privileged(session)):
                     raise HTTPException(422, '找不到上傳圖片，請重新選擇。')
-            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode,last_image) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            reserved, unit = store.members.reserve(db, session, value, job_id)
+            if session['member_id']:
+                value.origin.user = store.members.member(session['member_id'], db)['name']
+            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode,last_image,member_id,reserved_points,unit_points) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt,
                         value.workflow, json.dumps(value.images), '[]', now, now, json.dumps(value.origin.model_dump()),
-                        json.dumps(parameters), int(value.precise_mode), value.last_image))
+                        json.dumps(parameters), int(value.precise_mode), value.last_image, session['member_id'], reserved, unit))
         wake.set()
         LOG.info('Job queued id=%s', job_id)
         return store.public_job(store.job(job_id))
 
     @app.get('/api/jobs')
     def jobs(request: Request):
-        store.session(request)
+        session = store.session(request)
         with store.connect() as db:
-            rows = db.execute('SELECT * FROM jobs ORDER BY created DESC LIMIT 30').fetchall()
+            rows = db.execute('SELECT * FROM jobs WHERE ? OR member_id=? ORDER BY created DESC LIMIT 30',
+                              (store.privileged(session), session['member_id'])).fetchall()
         return {'jobs': [store.public_job(row) for row in reversed(rows)]}
 
     @app.get('/api/jobs/{job_id}')
     def job(job_id: str, request: Request):
-        store.session(request)
-        return store.public_job(store.job(job_id))
+        session = store.session(request)
+        return store.public_job(store.authorize_job(job_id, session))
 
     @app.post('/api/jobs/{job_id}/cancel')
     def cancel_job(job_id: str, request: Request):
-        store.session(request, mutate=True)
+        session = store.session(request, mutate=True)
         with control_lock:
-            row = store.job(job_id)
+            row = store.authorize_job(job_id, session)
             if row['status'] == 'queued':
                 store.update(job_id, 'cancelled', '任務已終止，未開始生成。')
             elif row['status'] in ('running', 'cancelling') and job_id in controls:
@@ -606,8 +650,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
 
     @app.get('/api/jobs/{job_id}/images/{index}')
     def result(job_id: str, index: int, request: Request):
-        store.session(request)
-        row = store.job(job_id)
+        session = store.session(request)
+        row = store.authorize_job(job_id, session)
         results = json.loads(row['results'])
         if not 0 <= index < len(results):
             raise HTTPException(404, '圖片尚未完成。')
@@ -636,6 +680,14 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @app.get('/sw.js')
     def service_worker():
         return FileResponse(STATIC / 'sw.js', media_type='application/javascript')
+
+    @app.get('/static/membership.js')
+    def membership_script():
+        return FileResponse(ROOT / 'src' / 'membership.js', media_type='application/javascript')
+
+    @app.get('/static/membership.css')
+    def membership_style():
+        return FileResponse(ROOT / 'src' / 'membership.css', media_type='text/css')
 
     app.mount('/static', StaticFiles(directory=STATIC), name='static')
     return app
