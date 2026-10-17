@@ -215,17 +215,18 @@ const { chromium } = require('playwright');
     assert.equal(await page.locator('#cancel-generation').isEnabled(), true);
     await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1,
       status: 'running', message: '正在載入 <模型> 與生成影片', done: false,
-      progress: { elapsed_seconds: 65, running_seconds: 60, estimated_seconds: 180, sample_count: 3, completed: 0, total: 1 } } }));
+      progress: { elapsed_seconds: 65, remaining_seconds: 120, estimate_basis: 'history', sample_count: 3, completed: 0, total: 1 } } }));
     const progressCard = page.locator('#video-results-h3_image .progress-card');
     assert.match(await progressCard.innerText(), /目前階段：正在載入 <模型>/);
     assert.match(await progressCard.innerText(), /預計剩餘約 2 分/);
     assert.equal(await progressCard.locator('模型').count(), 0);
     await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1,
       status: 'running', message: '正在生成影片', done: false,
-      progress: { elapsed_seconds: 65, completed: 0, total: 1,
-        sampling: { label: '本輪採樣', step: 3, total: 8, state: 'sampling', seconds_per_step: 2.5, remaining_seconds: 12.5, age_seconds: 0 } } } }));
+      progress: { elapsed_seconds: 65, completed: 0, total: 1, remaining_seconds: 135, estimate_basis: 'speed',
+        sampling: { label: '本輪採樣', step: 3, total: 8, state: 'sampling', seconds_per_step: 2.5, age_seconds: 0 } } } }));
     assert.match(await progressCard.innerText(), /第 3 \/ 8 步/);
-    assert.match(await progressCard.innerText(), /本輪採樣預計剩餘約/);
+    assert.match(await progressCard.innerText(), /整個任務預計剩餘約 2 分/);
+    assert.doesNotMatch(await progressCard.innerText(), /本輪採樣預計剩餘/);
     assert.match(await progressCard.innerText(), /每步約 2.50 秒/);
     assert.equal(await progressCard.locator('progress').getAttribute('max'), '8');
     assert.equal(await progressCard.locator('progress').getAttribute('value'), '3');

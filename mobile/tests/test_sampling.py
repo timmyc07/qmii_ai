@@ -24,14 +24,14 @@ class SamplingTest(unittest.TestCase):
             sampling.update('one', 0, 8)
             clock.return_value = 500
             sampling.update('one', 1, 8)
-            self.assertIsNone(sampling.snapshot()['remaining_seconds'])
+            self.assertIsNone(sampling.snapshot()['seconds_per_step'])
             clock.return_value = 502
             sampling.update('one', 2, 8)
             self.assertEqual(sampling.snapshot()['seconds_per_step'], 2)
             clock.return_value = 506
             sampling.update('one', 3, 8)
             self.assertAlmostEqual(sampling.snapshot()['seconds_per_step'], 2.6)
-            self.assertAlmostEqual(sampling.snapshot()['remaining_seconds'], 13)
+            self.assertNotIn('remaining_seconds', sampling.snapshot())
             clock.return_value = 507
             self.assertEqual(sampling.snapshot()['age_seconds'], 1)
             sampling.update('one', 3, 8)
@@ -67,7 +67,7 @@ class SamplingTest(unittest.TestCase):
         result = sampling.snapshot()
         self.assertEqual((result['step'], result['total']), (2, 8))
         self.assertEqual(result['seconds_per_step'], .25)
-        self.assertEqual(result['remaining_seconds'], 1.5)
+        self.assertNotIn('remaining_seconds', result)
         self.assertNotIn('private', json.dumps(result))
 
     def test_cli_streams_before_process_exits_and_preserves_both_pipes(self):
@@ -192,3 +192,15 @@ class SamplingTest(unittest.TestCase):
                 request_json('/prompt', {'prompt': {}})
             submit.assert_not_called()
             listener.return_value.close.assert_called_once()
+
+    def test_http_completion_starts_download_and_save_timing(self):
+        control = TaskControl(SamplingProgress())
+        control.prompt_id = 'owned'
+        timing = control.sampling.timing
+        timing.begin_engine({'sample': {'class_type': 'KSampler'}})
+        timing.executing('sample')
+        history = {'owned': {'status': {'completed': True}}}
+        with patch('mobile.superduper.urlopen', return_value=io.BytesIO(json.dumps(history).encode())), task_scope(control):
+            request_json('/history/owned')
+        self.assertFalse(timing.engine_active)
+        self.assertEqual(timing.current['kind'], 'save')

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from mobile.tests.support import Store, create_app
 from mobile.sampling import SamplingProgress
+from mobile.timing import TaskTiming
 
 
 class ProgressTest(unittest.TestCase):
@@ -38,7 +39,8 @@ class ProgressTest(unittest.TestCase):
         with patch('mobile.server.time.time', return_value=50):
             progress = self.store.public_job(row)['progress']
         self.assertEqual(progress, dict(elapsed_seconds=40, running_seconds=30,
-                                      estimated_seconds=100, sample_count=3, queue_position=None, completed=0, total=1, sampling=None))
+                                      remaining_seconds=70, estimate_basis='history', sample_count=3,
+                                      queue_position=None, completed=0, total=1, sampling=None))
         self.assertNotIn('private', json.dumps(progress))
 
     def test_queue_position_elapsed_and_terminal_clocks(self):
@@ -50,7 +52,7 @@ class ProgressTest(unittest.TestCase):
         self.assertEqual(progress['queue_position'], 3)
         self.assertEqual(progress['elapsed_seconds'], 30)
         self.assertIsNone(progress['running_seconds'])
-        self.assertIsNone(progress['estimated_seconds'])
+        self.assertIsNone(progress['remaining_seconds'])
 
         row = self.job('d', 'cancelled', finished=40, results=['saved.png'])
         with patch('mobile.server.time.time', return_value=900):
@@ -58,23 +60,24 @@ class ProgressTest(unittest.TestCase):
         self.assertEqual(progress['elapsed_seconds'], 30)
         self.assertEqual(progress['running_seconds'], 20)
         self.assertEqual(progress['completed'], 1)
-        self.assertIsNone(progress['estimated_seconds'])
+        self.assertIsNone(progress['remaining_seconds'])
 
     def test_estimate_uses_only_five_latest_matches(self):
         for index, (name, seconds) in enumerate(zip('abcdef', [999, 10, 20, 30, 40, 50])):
             started = 2000 + index * 1000
             self.job(name, 'completed', started=started, finished=started + seconds)
-        progress = self.store.job_progress(self.job('1'))
+        with patch('mobile.server.time.time', return_value=20):
+            progress = self.store.job_progress(self.job('1'))
         self.assertEqual(progress['sample_count'], 5)
-        self.assertEqual(progress['estimated_seconds'], 30)
+        self.assertEqual(progress['remaining_seconds'], 30)
 
     def test_batch_tail_and_video_settings_do_not_share_estimates(self):
         self.job('a', 'completed', workflow='h3_image', finished=120,
                  parameters=dict(video_profile='turbo4'), sources=['one'], last_image='tail')
         row = self.job('b', workflow='h3_image', parameters=dict(video_profile='turbo8'), sources=['one'])
-        self.assertIsNone(self.store.job_progress(row)['estimated_seconds'])
+        self.assertIsNone(self.store.job_progress(row)['remaining_seconds'])
         row = self.job('c', workflow='h3_image', parameters=dict(video_profile='turbo4'), sources=['one'])
-        self.assertIsNone(self.store.job_progress(row)['estimated_seconds'])
+        self.assertIsNone(self.store.job_progress(row)['remaining_seconds'])
         row = self.job('d', workflow='h3_image', sources=['one', 'two', 'three', 'four'])
         self.assertEqual(self.store.job_progress(row)['total'], 4)
         row = self.job('e', workflow='reference', sources=['one', 'two'])
@@ -93,8 +96,62 @@ class ProgressTest(unittest.TestCase):
         sampling.update('sample', 2, 8, seconds=3)
         progress = self.store.public_job(row)['progress']['sampling']
         self.assertEqual((progress['step'], progress['total']), (2, 8))
-        self.assertEqual(progress['remaining_seconds'], 18)
+        self.assertNotIn('remaining_seconds', progress)
         self.assertIsNone(self.store.public_job(other)['progress']['sampling'])
         with self.store.connect() as db:
             db.execute("UPDATE jobs SET status='completed',finished=100 WHERE id=?", (row['id'],))
         self.assertIsNone(self.store.public_job(self.store.job(row['id']))['progress']['sampling'])
+
+    def test_complete_profiles_survive_restart_and_failed_tasks_do_not_calibrate(self):
+        row = self.job('a')
+        with patch('mobile.timing.time.monotonic') as clock:
+            clock.return_value = 0
+            timing = TaskTiming()
+            sampling = self.store.live_sampling[row['id']] = SamplingProgress(timing)
+            clock.return_value = 2
+            timing.begin_engine()
+            clock.return_value = 10
+            sampling.update('cli', 4, 4, seconds=2)
+            clock.return_value = 15
+            timing.engine_finished()
+            clock.return_value = 18
+            timing.output_finished(1)
+            clock.return_value = 20
+            self.store.update(row['id'], 'completed', 'done')
+        restored = Store(self.root / 'state', self.root / 'output')
+        profile = json.loads(restored.job(row['id'])['timings'])
+        self.assertEqual(profile['0:decode']['seconds'], 5)
+        self.assertEqual(profile['0:save']['seconds'], 3)
+        self.assertEqual(profile['finish']['seconds'], 2)
+        self.assertNotIn('timings', restored.public_job(restored.job(row['id'])))
+        next_job = self.job('c')
+        profiles = [json.loads(value['timings']) for value in restored.progress_history(next_job)]
+        with patch('mobile.timing.time.monotonic', return_value=100):
+            restored.live_sampling[next_job['id']] = SamplingProgress(TaskTiming(1, profiles))
+            progress = restored.job_progress(next_job)
+        self.assertEqual(progress['remaining_seconds'], 20)
+        self.assertEqual(progress['estimate_basis'], 'speed')
+        failed = self.job('b')
+        self.store.live_sampling[failed['id']] = SamplingProgress()
+        self.store.update(failed['id'], 'failed', 'failed')
+        self.assertEqual(json.loads(restored.job(failed['id'])['timings']), {})
+
+    def test_api_remaining_is_whole_task_and_not_the_current_round(self):
+        def stage(kind, seconds, steps=0, rate=None):
+            return dict(kind=kind, seconds=seconds, steps=steps, rate=rate)
+        profile = {'prepare:0': stage('prepare', 1), '0:cli': stage('cli', 8, 8, 1),
+                   '0:decode': stage('decode', 5), '0:save': stage('save', 2), 'finish': stage('finish', 1)}
+        row = self.job('a')
+        with patch('mobile.timing.time.monotonic') as clock:
+            clock.return_value = 0
+            timing = TaskTiming(1, [profile])
+            sampling = self.store.live_sampling[row['id']] = SamplingProgress(timing)
+            clock.return_value = 1
+            timing.begin_engine()
+            clock.return_value = 7
+            sampling.update('cli', 2, 8, seconds=3)
+            progress = self.store.public_job(row)['progress']
+        self.assertEqual(progress['remaining_seconds'], 26)
+        self.assertEqual(progress['estimate_basis'], 'speed')
+        self.assertEqual(progress['sampling']['step'], 2)
+        self.assertNotIn('remaining_seconds', progress['sampling'])

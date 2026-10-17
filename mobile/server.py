@@ -35,6 +35,7 @@ from .membership import Members, install_membership
 from .accounts import MongoAccounts
 from .points import fingerprint
 from .sampling import SamplingProgress
+from .timing import TaskTiming
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -120,7 +121,8 @@ class Store:
             for name, definition in [('origin', "TEXT NOT NULL DEFAULT '{}'"),
                                      ('started', 'REAL'), ('finished', 'REAL'),
                                      ('parameters', "TEXT NOT NULL DEFAULT '{}'") ,
-                                     ('precise_mode', 'INTEGER NOT NULL DEFAULT 0'), ('last_image', 'TEXT')]:
+                                     ('precise_mode', 'INTEGER NOT NULL DEFAULT 0'), ('last_image', 'TEXT'),
+                                     ('timings', "TEXT NOT NULL DEFAULT '{}'")]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
                     if name == 'last_image':
@@ -187,14 +189,17 @@ class Store:
 
     def update(self, job_id, status, message, results=None):
         now = time.time()
+        sampling = self.live_sampling.get(job_id)
+        timings = sampling.timing.finish() if status == 'completed' and sampling else None
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             db.execute("""UPDATE jobs SET status=?,message=?,updated=?,
                           started=CASE WHEN ?='running' THEN COALESCE(started,?) ELSE started END,
                           finished=CASE WHEN ? IN ('completed','failed','cancelled') THEN ? ELSE finished END,
-                          results=COALESCE(?,results) WHERE id=?""",
+                          results=COALESCE(?,results),timings=COALESCE(?,timings) WHERE id=?""",
                        (status, message, now, status, now, status, now,
-                        json.dumps(results) if results is not None else None, job_id))
+                        json.dumps(results) if results is not None else None,
+                        json.dumps(timings) if timings is not None else None, job_id))
         if status in ('completed', 'failed', 'cancelled'):
             self.settle(job_id)
 
@@ -284,39 +289,43 @@ class Store:
             raise HTTPException(404, '找不到任務。')
         return row
 
+    def progress_history(self, row):
+        with self.connect() as db:
+            # shortcut: scan 50 recent runs; index normalized settings if older matches are needed.
+            history = db.execute("""SELECT parameters,sources,last_image,started,finished,timings FROM jobs
+                WHERE workflow=? AND precise_mode=? AND status='completed' AND started IS NOT NULL
+                AND finished>started ORDER BY finished DESC LIMIT 50""",
+                (row['workflow'], row['precise_mode'])).fetchall()
+        def settings(parameters):
+            return {key: value for key, value in json.loads(parameters).items()
+                    if key not in ('seed', 'negative', 'segment_prompts')}
+        return [previous for previous in history
+                if settings(previous['parameters']) == settings(row['parameters'])
+                and len(json.loads(previous['sources'])) == len(json.loads(row['sources']))
+                and bool(previous['last_image']) == bool(row['last_image'])][:5]
+
     def job_progress(self, row):
         now = time.time()
         sampling = self.live_sampling.get(row['id'])
         active = row['status'] in ('queued', 'running', 'cancelling')
         total = 1 if row['workflow'] in ('reference', 'svi_image') else max(1, len(json.loads(row['sources'])))
-        estimate, samples, position = None, [], None
-        if active:
+        history = self.progress_history(row) if active else []
+        remaining, basis, position = None, None, None
+        if row['status'] == 'queued':
             with self.connect() as db:
-                if row['status'] == 'queued':
-                    position = 1 + db.execute("""SELECT COUNT(*) FROM jobs WHERE id!=? AND
-                        (status IN ('running','cancelling') OR (status='queued' AND (created,id)<(?,?)))""",
-                        (row['id'], row['created'], row['id'])).fetchone()[0]
-                # shortcut: scan 50 recent runs; index normalized settings if older matches are needed.
-                history = db.execute("""SELECT parameters,sources,last_image,started,finished FROM jobs
-                    WHERE workflow=? AND precise_mode=? AND status='completed' AND started IS NOT NULL
-                    AND finished>started ORDER BY finished DESC LIMIT 50""",
-                    (row['workflow'], row['precise_mode'])).fetchall()
-            def settings(parameters):
-                return {key: value for key, value in json.loads(parameters).items()
-                        if key not in ('seed', 'negative', 'segment_prompts')}
-            for previous in history:
-                if (settings(previous['parameters']) == settings(row['parameters'])
-                        and len(json.loads(previous['sources'])) == len(json.loads(row['sources']))
-                        and bool(previous['last_image']) == bool(row['last_image'])):
-                    samples.append(previous['finished'] - previous['started'])
-                    if len(samples) == 5:
-                        break
-            if samples:
-                estimate = median(samples)
+                position = 1 + db.execute("""SELECT COUNT(*) FROM jobs WHERE id!=? AND
+                    (status IN ('running','cancelling') OR (status='queued' AND (created,id)<(?,?)))""",
+                    (row['id'], row['created'], row['id'])).fetchone()[0]
+        if row['status'] == 'running':
+            remaining = sampling.timing.remaining() if sampling else None
+            basis = 'speed' if remaining is not None else 'calibrating'
+            if remaining is None and history and row['started'] is not None:
+                remaining = max(0, median(value['finished'] - value['started'] for value in history) - (now - row['started']))
+                basis = 'history'
         end = now if active else row['finished'] or row['updated'] or now
         return dict(elapsed_seconds=max(0, end - row['created']) if row['created'] is not None else None,
                     running_seconds=max(0, end - row['started']) if row['started'] is not None else None,
-                    estimated_seconds=estimate, sample_count=len(samples), queue_position=position,
+                    remaining_seconds=remaining, estimate_basis=basis, sample_count=len(history), queue_position=position,
                     completed=len(json.loads(row['results'])), total=total,
                     sampling=sampling.snapshot() if active and sampling else None)
 
@@ -422,7 +431,9 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                             store.update(row['id'], 'cancelled', '會員帳號已停用，任務已取消，未完成輸出將退點。')
                             continue
                 if row:
-                    sampling = store.live_sampling[row['id']] = SamplingProgress()
+                    total = 1 if row['workflow'] in ('reference', 'svi_image') else max(1, len(json.loads(row['sources'])))
+                    profiles = [json.loads(value['timings']) for value in store.progress_history(row)]
+                    sampling = store.live_sampling[row['id']] = SamplingProgress(TaskTiming(total, profiles))
                     control = controls[row['id']] = TaskControl(sampling)
                     store.update(row['id'], 'running', '正在準備電腦…')
             if not row:
@@ -449,6 +460,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 def progress(message, results=None):
                     if results is not None:
                         results = store.publish_results(job_id, output, results, datetime.now().strftime('%Y-%m-%d'), published)
+                        sampling.timing.output_finished(len(results))
                     store.update(job_id, 'cancelling' if control.cancelled.is_set() else 'running', message, results)
                     if results:
                         drive.wake.set()
@@ -459,6 +471,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 else:
                     results = runner(payload, sources, output, progress)
                 results = store.publish_results(job_id, output, results, datetime.now().strftime('%Y-%m-%d'), published)
+                sampling.timing.output_finished(len(results))
                 drive.wake.set()
                 with control_lock:
                     cancelled = control.cancelled.is_set()

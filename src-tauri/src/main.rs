@@ -358,13 +358,14 @@ mod tests {
         let progress: Progress = serde_json::from_value(serde_json::json!({
             "jobId": "task", "index": 0, "total": 1, "message": "正在生成", "done": false,
             "status": "running", "billingStatus": "reserved",
-            "progress": {"elapsed_seconds": 30, "estimated_seconds": 120}
+            "progress": {"elapsed_seconds": 30, "remaining_seconds": 120, "estimate_basis": "speed"}
         }))
         .unwrap();
         let value = serde_json::to_value(progress).unwrap();
         assert_eq!(value["status"], "running");
         assert_eq!(value["billingStatus"], "reserved");
-        assert_eq!(value["progress"]["estimated_seconds"], 120);
+        assert_eq!(value["progress"]["remaining_seconds"], 120);
+        assert_eq!(value["progress"]["estimate_basis"], "speed");
     }
 
     #[test]

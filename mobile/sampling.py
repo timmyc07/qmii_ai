@@ -4,11 +4,13 @@ import math
 import re
 import threading
 import time
+from .timing import TaskTiming
 
 
 class SamplingProgress:
-    def __init__(self):
+    def __init__(self, timing=None):
         self.lock = threading.Lock()
+        self.timing = timing or TaskTiming()
         self.data = None
         self.connection_lost = False
 
@@ -38,6 +40,7 @@ class SamplingProgress:
             self.connection_lost = False
             self.data = dict(node=node, step=int(step), total=int(total), label=label,
                              seconds_per_step=rate, updated=now, state='sampling' if step < total else 'complete')
+            self.timing.sample(node, int(step), int(total), rate)
 
     def idle(self):
         with self.lock:
@@ -47,6 +50,7 @@ class SamplingProgress:
     def disconnected(self):
         with self.lock:
             self.connection_lost = True
+            self.timing.disconnected()
             if self.data:
                 self.data['state'] = 'disconnected'
 
@@ -57,8 +61,6 @@ class SamplingProgress:
             value = self.data.copy()
         value.pop('node')
         value['age_seconds'] = max(0, time.monotonic() - value.pop('updated'))
-        rate = value['seconds_per_step']
-        value['remaining_seconds'] = (value['total'] - value['step']) * rate if rate is not None else None
         return value
 
 
@@ -71,6 +73,7 @@ class ComfyProgress:
         self.stop = threading.Event()
         self.ws = None
         sampling.reset()
+        sampling.timing.begin_engine(graph)
         self.connect()
         self.thread = threading.Thread(target=self.read, daemon=True)
         self.thread.start()
@@ -90,6 +93,12 @@ class ComfyProgress:
         node = str(data.get('node'))
         if message.get('type') == 'executing':
             self.sampling.idle()
+            self.sampling.timing.executing(data.get('node'))
+        elif message.get('type') == 'execution_cached':
+            self.sampling.timing.cached(data.get('nodes', []))
+        elif message.get('type') == 'execution_success':
+            self.sampling.idle()
+            self.sampling.timing.engine_finished()
         elif message.get('type') == 'progress':
             kind = self.graph.get(node, {}).get('class_type', '').lower()
             if 'sampler' not in kind and 'detailer' not in kind:

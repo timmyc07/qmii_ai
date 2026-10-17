@@ -164,19 +164,20 @@ const { chromium } = require('playwright');
     const progressStatus = page.locator('.job-status').last();
     assert.match(await progressStatus.innerText(), /排隊第 3 位（前方 2 個任務）/);
     await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running', message: '正在載入模型…' }));
-    assert.match(await progressStatus.innerText(), /暫無法估算/);
+    assert.match(await progressStatus.innerText(), /整體估時校準中/);
     await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running', message: '正在生成圖片…',
-      progress: { elapsed_seconds: 85, running_seconds: 80, estimated_seconds: 180, sample_count: 2, completed: 0, total: 1 } }));
+      progress: { elapsed_seconds: 85, remaining_seconds: 100, estimate_basis: 'history', sample_count: 2, completed: 0, total: 1 } }));
     assert.match(await progressStatus.innerText(), /預計剩餘約/);
     await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running', message: '正在生成第二段影片…',
-      progress: { elapsed_seconds: 85, completed: 0, total: 1,
-        sampling: { label: '第 2/3 段 · 低噪採樣', step: 2, total: 4, seconds_per_step: 3, remaining_seconds: 6, age_seconds: 0, state: 'sampling' } } }));
+      progress: { elapsed_seconds: 85, completed: 0, total: 1, remaining_seconds: 106, estimate_basis: 'speed',
+        sampling: { label: '第 2/3 段 · 低噪採樣', step: 2, total: 4, seconds_per_step: 3, age_seconds: 0, state: 'sampling' } } }));
     assert.match(await progressStatus.innerText(), /第 2 \/ 4 步/);
     assert.match(await progressStatus.innerText(), /每步約 3.00 秒/);
-    assert.match(await progressStatus.innerText(), /本輪採樣預計剩餘約/);
+    assert.match(await progressStatus.innerText(), /整個任務預計剩餘約 1 分/);
+    assert.doesNotMatch(await progressStatus.innerText(), /本輪採樣預計剩餘/);
     await progressStatus.evaluate(element => { element.taskProgress.received -= 2000; });
     await page.waitForTimeout(1100);
-    assert.match(await progressStatus.innerText(), /本輪採樣預計剩餘約 [1-4] 秒/);
+    assert.match(await progressStatus.innerText(), /整個任務預計剩餘約 1 分 4[0-4] 秒/);
     for (const width of [1280, 390, 360]) {
       await page.setViewportSize({ width, height: 820 });
       await progressStatus.evaluate(element => window.scrollTo(0, scrollY + element.getBoundingClientRect().top - 100));
@@ -185,16 +186,17 @@ const { chromium } = require('playwright');
       await progressStatus.screenshot({ path: path.join(__dirname, `../.runtime/mobile-sampling-${width}.png`), animations: 'disabled' });
     }
     await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running',
-      progress: { elapsed_seconds: 100, sampling: { label: '本輪採樣', step: 4, total: 4, state: 'complete' } } }));
-    assert.match(await progressStatus.innerText(), /本輪採樣完成，等待後續處理/);
-    assert.doesNotMatch(await progressStatus.innerText(), /預計剩餘約/);
+      progress: { elapsed_seconds: 100, remaining_seconds: 25, estimate_basis: 'speed',
+        sampling: { label: '本輪採樣', step: 4, total: 4, state: 'complete' } } }));
+    assert.match(await progressStatus.innerText(), /本輪採樣完成，任務仍在進行/);
+    assert.match(await progressStatus.innerText(), /整個任務預計剩餘約 25 秒/);
     await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running',
       progress: { elapsed_seconds: 100, sampling: { state: 'disconnected' } } }));
     assert.match(await progressStatus.innerText(), /即時採樣連線中斷/);
     assert.equal(await progressStatus.locator('progress').isVisible(), false);
     await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'running',
-      progress: { elapsed_seconds: 200, running_seconds: 190, estimated_seconds: 180, sample_count: 2 } }));
-    assert.match(await progressStatus.innerText(), /已超過歷史估時/);
+      progress: { elapsed_seconds: 200, remaining_seconds: 0, estimate_basis: 'history', sample_count: 2 } }));
+    assert.match(await progressStatus.innerText(), /已超過整體估時/);
     await page.evaluate(() => renderJob({ ...window.progressFixture, status: 'completed', message: '圖片完成',
       progress: { elapsed_seconds: 200, completed: 1, total: 1 } }));
     assert.equal(await progressStatus.locator('.task-spinner').isVisible(), false);

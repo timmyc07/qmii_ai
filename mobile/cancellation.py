@@ -73,6 +73,7 @@ def run_process(args, cwd, timeout, creationflags):
     stdout, stderr, errors = [], [], []
     if control.sampling:
         control.sampling.reset()
+        control.sampling.timing.begin_engine()
 
     def read(stream, chunks):
         from .sampling import CliProgress
@@ -111,4 +112,5 @@ def run_process(args, cwd, timeout, creationflags):
         process.stderr.close()
     if control.sampling:
         control.sampling.idle()
+        control.sampling.timing.engine_finished()
     return subprocess.CompletedProcess(args, process.returncode, b''.join(stdout), b''.join(stderr))

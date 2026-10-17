@@ -35,24 +35,24 @@ window.qianmiProgress = (() => {
         if (sampling.state === 'disconnected') {
           hint = '即時採樣連線中斷，正在重新連線；生成任務仍由主機管理。';
         } else if (sampling.state === 'complete' || sampling.state === 'paused') {
-          details.push(sampling.state === 'complete' ? '本輪採樣完成，等待後續處理' : '採樣階段已切換，等待後續回報');
+          details.push(sampling.state === 'complete' ? '本輪採樣完成，任務仍在進行' : '採樣階段已切換');
         } else if (age > Math.max(60, (sampling.seconds_per_step || 0) * 3)) {
           hint = '尚未收到新的採樣步數，正在等待引擎回報。';
-        } else if (sampling.remaining_seconds != null) {
-          const remaining = sampling.remaining_seconds - age;
+        } else if (sampling.seconds_per_step != null) {
           details.push(`每步約 ${sampling.seconds_per_step.toFixed(2)} 秒`);
-          details.push(remaining > 0 ? `本輪採樣預計剩餘約 ${duration(remaining)}` : '正在等待下一步採樣回報');
         } else {
           details.push('採樣速度估算中…');
         }
-        hint ||= '依本輪實際採樣速度更新；不含其他採樣輪次、解碼與存檔時間。';
-      } else if (progress.estimated_seconds != null && progress.running_seconds != null) {
-        const remaining = progress.estimated_seconds - progress.running_seconds - delta;
-        details.push(remaining > 0 ? `預計剩餘約 ${duration(remaining)}` : '已超過歷史估時，仍在處理');
-        hint = `依本機最近 ${progress.sample_count} 次相同設定的成功紀錄估算；模型載入與內容會影響實際時間。`;
-      } else {
-        details.push('預計剩餘：暫無法估算');
-        hint = '近期沒有相同設定的成功紀錄；首次載入模型可能較久，完成後會用於下次估時。';
+      }
+      if (!hint && progress.remaining_seconds != null) {
+        const remaining = progress.remaining_seconds - delta;
+        details.push(remaining > 0 ? `整個任務預計剩餘約 ${duration(remaining)}` : '已超過整體估時，任務仍在處理');
+        hint = progress.estimate_basis === 'speed'
+          ? '已包含所有後續採樣、解碼、存檔與資源釋放，依本次實測速度與完整任務紀錄持續校正。'
+          : `依本機最近 ${progress.sample_count} 次完整任務估算，包含後續採樣、解碼與存檔；正在累積各階段速度紀錄。`;
+      } else if (!hint) {
+        details.push('整體估時校準中');
+        hint = '尚缺相同設定的完整階段紀錄，完成本次任務後可估算所有採樣、解碼與存檔的剩餘時間。';
       }
     } else if (job.status === 'uploading') {
       hint = '正在連線工作室並傳送資料，接著會顯示排隊位置與生成階段。';

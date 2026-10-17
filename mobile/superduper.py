@@ -84,6 +84,11 @@ def request_json(path, payload=None, timeout=10, *, url=URL):
         result = json.loads(content) if content else {}
     if control:
         control.check()
+        if control.sampling and path.startswith('/history/'):
+            history = result.get(control.prompt_id, {})
+            if history.get('status', {}).get('completed'):
+                control.sampling.idle()
+                control.sampling.timing.engine_finished()
     return result
 
 
