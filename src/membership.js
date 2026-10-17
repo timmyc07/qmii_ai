@@ -102,15 +102,15 @@
 
   async function memberView() {
     if (!account?.member && !account?.owner) { loginView(); return; }
-    const member = account.member, admin = account.owner || member?.role === 'admin';
-    content.innerHTML = `<p>${member ? `<strong>${escape(member.name)}</strong> · ${escape(member.email)}<br>可用點數：<strong>${member.balance}</strong> 點 · ${member.role === 'admin' ? '管理員' : '一般會員'}${member.created ? `<small>加入時間：${time(member.created)} · 最近登入：${member.last_login_at ? time(member.last_login_at) : '尚未記錄'}</small>` : ''}` : '私人主機管理連線（免點數），可管理會員。'}</p>
-      <div class="membership-actions"><button data-refresh type="button">更新餘額</button>${admin ? '<button data-admin type="button">會員管理</button>' : ''}<button data-logout type="button">登出</button></div>
+    const member = account.member, admin = member?.role === 'admin';
+    content.innerHTML = `<p>${member ? `<strong>${escape(member.name)}</strong> · ${escape(member.email)}<br>可用點數：<strong>${member.balance}</strong> 點 · ${member.role === 'admin' ? '管理員' : '一般會員'}${member.created ? `<small>加入時間：${time(member.created)} · 最近登入：${member.last_login_at ? time(member.last_login_at) : '尚未記錄'}</small>` : ''}` : '私人主機管理連線（免點數）。管理共用會員與點數，請登入會員管理員帳號。'}</p>
+      <div class="membership-actions"><button data-refresh type="button">更新餘額</button>${admin ? '<button data-admin type="button">會員管理</button>' : ''}${!member ? '<button data-login-member type="button">登入會員</button>' : ''}<button data-logout type="button">登出</button></div>
       ${member ? `<h3>點數紀錄</h3><div data-ledger></div><div class="membership-actions"><button data-prev type="button">上一頁</button><button data-next type="button">下一頁</button></div>
       <details><summary>修改密碼</summary><p>修改後全部設備登出，請重新登入。</p><form data-password>${password('current_password', '目前密碼', 'current-password')}${password()}<button type="submit">更新密碼並登出</button></form></details>` : ''}`;
     content.querySelector('[data-refresh]').onclick = () => run(async () => { await refresh(); await memberView(); });
     content.querySelector('[data-logout]').onclick = () => run(async () => { await call('logout'); csrf = ''; await sessionChanged(); loginView(); });
     if (admin) content.querySelector('[data-admin]').onclick = () => run(adminView);
-    if (!member) return;
+    if (!member) { content.querySelector('[data-login-member]').onclick = loginView; return; }
     const loadLedger = async () => {
       const result = await call('ledger', { offset: ledgerOffset });
       content.querySelector('[data-ledger]').innerHTML = result.items.length ? `<ul class="membership-ledger">${result.items.map(row => `<li><span>${escape(row.reason)}<small>${time(row.created)}</small></span><strong>${row.amount > 0 ? '+' : ''}${row.amount}<small>餘額 ${row.balance}</small></strong></li>`).join('')}</ul>` : '<p>尚無點數紀錄。</p>';
@@ -181,12 +181,12 @@
   dialog.querySelector('[data-close]').onclick = () => dialog.close();
   dialog.addEventListener('close', () => { content.replaceChildren(); message.textContent = ''; });
   window.qianmiMembership = {
-    async ensureCredit(workflow, count) {
+    async ensureCredit(workflow, count, retry = false) {
       await refresh();
       if (account?.owner && !desktop) return 0;
       if (!account?.member) throw new Error('請先開啟「會員登入」並登入會員帳號。');
       const amount = (['h3_image', 'svi_image'].includes(workflow) ? config.video_points : config.image_points) * (['reference', 'svi_image'].includes(workflow) ? 1 : Math.max(1, count));
-      if (account.member.balance < amount) throw new Error(`本次需要 ${amount} 點，目前餘額 ${account.member.balance} 點，請聯絡管理員儲值。`);
+      if (!retry && account.member.balance < amount) throw new Error(`本次需要 ${amount} 點，目前餘額 ${account.member.balance} 點，請聯絡管理員儲值。`);
       return amount;
     },
     refresh

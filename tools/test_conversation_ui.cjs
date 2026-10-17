@@ -30,7 +30,7 @@ const { chromium } = require('playwright');
           }
           if (name === 'load_settings') return structuredClone(settings);
           if (name === 'save_settings') { window.testSavedSettings = value.settings; settings = structuredClone({ ...value.settings, revision: 'saved' }); return structuredClone(settings); }
-          if (name === 'generate_images') { window.testGenerations.push(value); return; }
+          if (name === 'generate_images') { window.testGenerations.push(value); if (window.testDisconnect) throw new Error('回應中斷'); return; }
           if (name === 'cancel_generation') { window.testCancelled = value.jobId; return; }
           if (name === 'mobile_status') return { running: false, registered: false, url: '', code: '', message: '' };
           if (name === 'studio_jobs') return { jobs: [] };
@@ -141,6 +141,21 @@ const { chromium } = require('playwright');
     assert.equal(await page.evaluate(() => window.creditChecks), 1);
     await page.evaluate(() => window.releaseCredits(3));
     await page.waitForFunction(() => window.testGenerations.length === 1);
+    await page.reload();
+    await page.fill('#prompt', '斷線重試');
+    await page.evaluate(() => { window.testDisconnect = true; });
+    await page.click('#send');
+    await page.waitForFunction(() => window.testGenerations.length === 1 && !document.querySelector('#send').disabled);
+    const requestId = await page.evaluate(() => window.testGenerations[0].requestId);
+    assert.match(requestId, /^[a-f0-9]{32}$/);
+    assert.equal(await page.locator('#prompt').inputValue(), '斷線重試');
+    await page.click('#send');
+    await page.waitForFunction(() => window.testGenerations.length === 2 && !document.querySelector('#send').disabled);
+    assert.equal(await page.evaluate(() => window.testGenerations[1].requestId), requestId);
+    await page.evaluate(() => window.testProgress({ payload: { done: true, message: '完成' } }));
+    await page.click('#send');
+    await page.waitForFunction(() => window.testGenerations.length === 3);
+    assert.notEqual(await page.evaluate(() => window.testGenerations[2].requestId), requestId);
     assert.deepEqual(errors, []);
     console.log('Conversation UI passed: Turbo and ComfyUI groups, parameters, responsive layout.');
   } finally {

@@ -288,15 +288,23 @@ async fn generate_images(
     workflow: String,
     parameters: serde_json::Value,
     precise_mode: bool,
+    request_id: String,
 ) -> Result<(), String> {
     if prompt.trim().is_empty() || prompt.len() > 32000 || images.len() > 4 {
         return Err("請檢查提示詞與圖片數量（最多 4 張）。".into());
+    }
+    if request_id.len() != 32
+        || !request_id
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    {
+        return Err("生成請求編號無效。".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
         bridge(
             "generate",
             serde_json::json!({"prompt": prompt, "images": images, "last_image": last_image, "workflow": workflow,
-                "parameters": parameters, "precise_mode": precise_mode}),
+                "parameters": parameters, "precise_mode": precise_mode, "request_id": request_id}),
             Some(app),
         )
         .map(|_| ())

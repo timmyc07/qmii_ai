@@ -7,6 +7,7 @@ import time
 from fastapi import HTTPException
 from pymongo import MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
+from .points import MongoPoints
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,6 +35,7 @@ class MongoAccounts:
         self.state = database.account_state
         self.collection.create_index('email', unique=True, name='unique_email')
         self.state.update_one({'_id': 'members'}, {'$setOnInsert': {'revision': 0}}, upsert=True)
+        self.points = MongoPoints(database)
 
     @classmethod
     def from_env(cls):

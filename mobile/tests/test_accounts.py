@@ -47,12 +47,15 @@ class AccountTest(unittest.TestCase):
             self.assertEqual(member['password'], encoded)
             self.assertEqual(member['balance'], 12)
             self.assertTrue((state / 'members-before-mongodb.sqlite3').is_file())
+            with sqlite3.connect(state / 'members-before-mongodb.sqlite3') as backup:
+                self.assertEqual(backup.execute('SELECT value FROM host_identity WHERE id=1').fetchone()[0], store.members.host_id)
+            backup.close()
             with store.connect() as db:
-                self.assertFalse(db.execute("SELECT 1 FROM sqlite_master WHERE name='members'").fetchone())
-                store.members.adjust(db, member['id'], -3, '測試', member['id'], 'test')
+                self.assertFalse(db.execute("SELECT 1 FROM sqlite_master WHERE name IN ('members','member_wallets','point_ledger')").fetchone())
+            store.members.points.adjust(member['id'], -3, '測試', member['id'], 'test', store.members.host_id)
             self.assertEqual(Store(state, root / 'output').members.member(member['id'])['balance'], 9)
 
-    def test_cloud_revocation_and_offline_guard_do_not_break_local_refund(self):
+    def test_cloud_revocation_guard_does_not_block_independent_settlement(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             accounts = MemoryAccounts()
@@ -65,18 +68,17 @@ class AccountTest(unittest.TestCase):
             owner_headers = origin | {'X-Qianmi-CSRF': result['csrf']}
             admin = client.post('/api/membership/bootstrap', headers=owner_headers,
                                 json=dict(email='admin@example.com', name='管理員', password='test password 123')).json()
-            client.post('/api/admin/members/' + admin['id'] + '/credits', headers=owner_headers,
-                        json=dict(amount=10, reason='測試', request_id='a' * 32))
             login = client.post('/api/membership/login', headers=origin, json=dict(email='admin@example.com', password='test password 123')).json()
             headers = origin | {'X-Qianmi-CSRF': login['csrf']}
+            client.post('/api/admin/members/' + admin['id'] + '/credits', headers=headers,
+                        json=dict(amount=10, reason='測試', request_id='a' * 32))
             job = client.post('/api/jobs', headers=headers, json=dict(prompt='test', workflow='quick', request_id='b' * 32)).json()
             with patch.object(accounts, 'get', side_effect=ServerSelectionTimeoutError('mongodb://private-secret@host')):
                 response = client.get('/api/session')
                 self.assertEqual(response.status_code, 503)
                 self.assertNotIn('private-secret', response.text)
                 app.state.store.update(job['id'], 'cancelled', '退點')
-                with app.state.store.connect() as db:
-                    self.assertEqual(app.state.store.members.wallet(db, admin['id']), 10)
-            accounts.records[admin['id']]['auth_version'] += 1
+                self.assertEqual(app.state.store.members.points.balance(admin['id']), 10)
+            accounts.collection.update_one({'_id': admin['id']}, {'$inc': {'auth_version': 1}})
             self.assertEqual(client.get('/api/session').status_code, 401)
             client.close()

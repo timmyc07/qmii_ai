@@ -271,7 +271,7 @@ function renderJob(job) {
 設備：${origin.device || '未記錄'}
 使用者（來源回報）：${origin.user || '未記錄'}
 設備識別碼：${origin.device_id || '未記錄'}
-任務編號：${job.id}`;
+任務編號：${job.id}${job.billing_status === 'pending' ? '\n點數確認中，連線恢復後自動重試。' : job.finished && job.billing_status === 'reserved' ? '\n點數結算待連線，自動重試中。' : ''}`;
   const status = card.querySelector('.job-status'); status.textContent = job.message; status.classList.toggle('failed', job.status === 'failed');
   if (job.id === currentJobId) {
     const active = ['queued', 'running', 'cancelling'].includes(job.status);
@@ -377,7 +377,6 @@ $('composer').onsubmit = async event => {
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
   $('workflow').disabled = true; $('last-file').disabled = true;
   try {
-    if (window.qianmiMembership) await window.qianmiMembership.ensureCredit($('workflow').value, selected.length);
     for (const value of selected) {
       if (!value.id) value.id = (await api('/api/uploads', { method: 'POST', headers: { 'Content-Type': value.file.type || 'application/octet-stream' }, body: value.file })).id;
     }
@@ -389,6 +388,7 @@ $('composer').onsubmit = async event => {
     }
     const preciseMode = !video && $('precise-mode').checked;
     const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), lastImage, parameters, preciseMode]);
+    if (window.qianmiMembership) await window.qianmiMembership.ensureCredit($('workflow').value, selected.length, $('composer').pendingSignature === signature);
     if ($('composer').pendingSignature !== signature) { $('composer').pendingSignature = signature; $('composer').pendingId = crypto.randomUUID().replaceAll('-', ''); }
     const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), last_image: lastImage, precise_mode: preciseMode, request_id: $('composer').pendingId, origin: jobOrigin(), parameters });
     currentJobId = job.id; cancelling = false; $('cancel-generation').disabled = false; $('cancel-generation').textContent = '■ 強制終止';

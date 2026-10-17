@@ -32,6 +32,7 @@ from .maintenance import CleanupInput, Maintenance, health, workflow_check
 from .recipes import RecipeInput, Recipes
 from .membership import Members, install_membership
 from .accounts import MongoAccounts
+from .points import fingerprint
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -139,9 +140,16 @@ class Store:
                 db.execute('PRAGMA user_version=1')
         account_store = accounts if accounts is not None else MongoAccounts.from_env()
         with self.connect() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS host_identity (id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL)')
+            db.execute('INSERT OR IGNORE INTO host_identity VALUES (1,?)', (secrets.token_hex(16),))
+            db.commit()
             backup = self.state / 'members-before-mongodb.sqlite3'
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='members'").fetchone() and not backup.exists():
                 with closing(sqlite3.connect(backup)) as destination:
+                    db.backup(destination)
+            points_backup = self.state / 'points-before-mongodb.sqlite3'
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name IN ('member_wallets','point_ledger')").fetchone() and not points_backup.exists():
+                with closing(sqlite3.connect(points_backup)) as destination:
                     db.backup(destination)
         self.members = Members(self.connect, account_store)
 
@@ -184,8 +192,60 @@ class Store:
                           results=COALESCE(?,results) WHERE id=?""",
                        (status, message, now, status, now, status, now,
                         json.dumps(results) if results is not None else None, job_id))
-            if status in ('completed', 'failed', 'cancelled'):
-                self.members.settle(db, job_id)
+        if status in ('completed', 'failed', 'cancelled'):
+            self.settle(job_id)
+
+    @staticmethod
+    def billing_job(row):
+        return dict(member_id=row['member_id'], request_id=row['request_id'] or row['id'], job_id=row['id'],
+                    fingerprint=row['billing_fingerprint'], reserved_points=row['reserved_points'],
+                    unit_points=row['unit_points'], auth_version=row['billing_auth_version'], workflow=row['workflow'])
+
+    def confirm_billing(self, job_id):
+        row = self.job(job_id)
+        if not row['member_id']:
+            return
+        if row['billing_error']:
+            raise HTTPException(row['billing_error'], row['message'])
+        if row['status'] in ('completed', 'failed', 'cancelled'):
+            self.settle(job_id)
+            return
+        try:
+            record = self.members.points.reserve(self.billing_job(row), self.members.host_id)
+        except HTTPException as exc:
+            with self.connect() as db:
+                db.execute("UPDATE jobs SET status='failed',message=?,billing_status='rejected',billing_error=?,settled=1,finished=? WHERE id=?",
+                           (exc.detail, exc.status_code, time.time(), job_id))
+            raise
+        with self.connect() as db:
+            db.execute("UPDATE jobs SET billing_status=? WHERE id=?",
+                       ('settled' if record['state'] == 'settled' else 'reserved', job_id))
+            if record['state'] == 'settled':
+                db.execute("UPDATE jobs SET status='cancelled',settled=1,message='此請求已結算，請勿重複執行。',finished=? WHERE id=? AND status='queued'", (time.time(), job_id))
+        row = self.job(job_id)
+        if row['status'] in ('completed', 'failed', 'cancelled'):
+            self.settle(job_id)
+
+    def settle(self, job_id):
+        row = self.job(job_id)
+        if row['settled']:
+            return
+        if row['member_id']:
+            extension = '.mp4' if row['workflow'] in ('h3_image', 'svi_image') else '.png'
+            count = len({name for name in json.loads(row['results']) if name.endswith(extension)})
+            try:
+                self.members.points.settle(self.billing_job(row), self.members.host_id, count)
+            except (PyMongoError, HTTPException) as exc:
+                LOG.warning('Point settlement pending job=%s exception=%s', job_id, type(exc).__name__)
+                return
+        with self.connect() as db:
+            db.execute("UPDATE jobs SET settled=1,billing_status='settled' WHERE id=?", (job_id,))
+
+    def reconcile_points(self):
+        with self.connect() as db:
+            rows = db.execute("SELECT id FROM jobs WHERE status IN ('completed','failed','cancelled') AND settled=0 LIMIT 30").fetchall()
+        for row in rows:
+            self.settle(row['id'])
 
     def session(self, request, mutate=False):
         token = request.cookies.get('qianmi_session', '')
@@ -229,6 +289,7 @@ class Store:
                     prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
                     precise_mode=bool(row['precise_mode']),
                     reserved_points=row['reserved_points'], settled=bool(row['settled']),
+                    billing_status=row['billing_status'],
                     updated=row['updated'], started=row['started'], finished=row['finished'],
                     origin=json.loads(row['origin']),
                     sources=[f'/api/uploads/{value}' for value in sources], result_files=results,
@@ -296,9 +357,21 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     def worker():
         last_cleanup = time.monotonic()
         while not stop.is_set():
+            store.reconcile_points()
             with control_lock:
                 with store.connect() as db:
                     row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
+                if row:
+                    try:
+                        store.confirm_billing(row['id'])
+                    except PyMongoError:
+                        row = None
+                    except HTTPException:
+                        continue
+                    if row:
+                        row = store.job(row['id'])
+                        if row['status'] != 'queued':
+                            continue
                 if row:
                     if row['member_id']:
                         try:
@@ -307,7 +380,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                             member = None
                             row = None  # Keep the reservation queued while the account authority is unavailable.
                         if row and (not member or not member['active']):
-                            store.update(row['id'], 'cancelled', '會員帳號已停用，任務已取消並退點。')
+                            store.update(row['id'], 'cancelled', '會員帳號已停用，任務已取消，未完成輸出將退點。')
                             continue
                 if row:
                     control = controls[row['id']] = TaskControl()
@@ -384,7 +457,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         with store.connect() as db:
             interrupted = db.execute("SELECT id FROM jobs WHERE status IN ('running','cancelling')").fetchall()
         for row in interrupted:
-            store.update(row['id'], 'failed', '電腦服務已重新啟動，未完成輸出已退點，請重新提交。')
+            store.update(row['id'], 'failed', '電腦服務已重新啟動，未完成輸出將自動退點，請重新提交。')
         store.cleanup()
         thread = threading.Thread(target=worker, daemon=True, name='qianmi-gpu-worker')
         app.state.worker = thread
@@ -619,32 +692,43 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 raise ValueError('尾幀圖片僅適用於圖片生影片模式。')
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-        job_id, now = secrets.token_hex(16), time.time()
+        reserved, unit = store.members.quote(session, value)
+        job_id = hashlib.sha256((session['member_id'] + ':' + value.request_id).encode()).hexdigest()[:32] if session['member_id'] else secrets.token_hex(16)
+        now = time.time()
         with store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             previous = db.execute('SELECT * FROM jobs WHERE request_id=?', (value.request_id,)).fetchone()
             if previous:
                 store.authorize_job(previous['id'], session)
-                return store.public_job(previous)
-            if runner is None:
+            if not previous and runner is None:
                 check = workflow_check(value.workflow, parameters, bool(value.images))
                 if not check['ready']:
                     raise HTTPException(409, '此工作流尚未就緒：' + '、'.join(check['missing']) + '。' + check['repair'])
             count = db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','cancelling')").fetchone()[0]
-            if count >= 8:
+            if count >= 8 and not previous:
                 raise HTTPException(429, '電腦目前排隊已滿，請稍後再試。')
             for upload_id in value.images + ([value.last_image] if value.last_image else []):
                 identifier(upload_id)
                 upload = db.execute('SELECT * FROM uploads WHERE id=?', (upload_id,)).fetchone()
                 if not upload or (upload['member_id'] != session['member_id'] and not store.privileged(session)):
                     raise HTTPException(422, '找不到上傳圖片，請重新選擇。')
-            reserved, unit = store.members.reserve(db, session, value, job_id)
-            if session['member_id']:
-                value.origin.user = store.members.member(session['member_id'], db)['name']
-            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode,last_image,member_id,reserved_points,unit_points) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt,
-                        value.workflow, json.dumps(value.images), '[]', now, now, json.dumps(value.origin.model_dump()),
-                        json.dumps(parameters), int(value.precise_mode), value.last_image, session['member_id'], reserved, unit))
+            hashes = [hashlib.sha256((store.state / 'uploads' / f'{key}.png').read_bytes()).hexdigest()
+                      for key in value.images + ([value.last_image] if value.last_image else [])]
+            signature = fingerprint([value.workflow, value.prompt, parameters, value.precise_mode, hashes])
+            if previous:
+                if previous['billing_fingerprint'] != signature:
+                    raise HTTPException(409, '此請求編號已用於不同的生成內容。')
+                job_id = previous['id']
+            else:
+                if session['member_id']:
+                    value.origin.user = store.members.accounts.get(session['member_id'])['name']
+                db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode,last_image,member_id,reserved_points,unit_points,billing_fingerprint,billing_auth_version,billing_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                           (job_id, value.request_id, 'queued', '已排隊，正在確認共用點數…', value.prompt,
+                            value.workflow, json.dumps(value.images), '[]', now, now, json.dumps(value.origin.model_dump()),
+                            json.dumps(parameters), int(value.precise_mode), value.last_image, session['member_id'], reserved, unit,
+                            signature, session['auth_version'], 'pending' if session['member_id'] else 'exempt'))
+        with control_lock:
+            store.confirm_billing(job_id)
         wake.set()
         LOG.info('Job queued id=%s', job_id)
         return store.public_job(store.job(job_id))

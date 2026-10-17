@@ -6,7 +6,6 @@ import http.cookiejar
 import json
 import re
 from pathlib import Path
-import secrets
 import subprocess
 import sys
 import time
@@ -168,7 +167,7 @@ def main():
         job = client.request('/api/jobs', dict(prompt=payload['prompt'], workflow=payload['workflow'],
                                              parameters=payload.get('parameters', {}),
                                              precise_mode=payload.get('precise_mode', False), images=images, last_image=last_image,
-                                             request_id=secrets.token_hex(16), origin=desktop_origin()))
+                                             request_id=payload['request_id'], origin=desktop_origin()))
         seen = 0
         total = 1 if payload['workflow'] == 'reference' else max(1, len(images))
         while True:
@@ -182,6 +181,7 @@ def main():
             done = job['status'] in ('completed', 'failed', 'cancelled')
             emit(dict(index=seen, total=total, message=job['message'], done=done, image=None,
                       jobId=job['id'],
+                      billingStatus=job.get('billing_status'),
                       error=job['message'] if job['status'] == 'failed' else None))
             if done:
                 break

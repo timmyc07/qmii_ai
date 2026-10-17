@@ -228,7 +228,7 @@ function renderSharedJob(job, cancelling = false) {
   const endLabel = job.status === 'cancelled' ? '終止' : job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
     <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span>${['queued', 'running', 'cancelling'].includes(job.status) ? `<button type="button" class="cancel-button" data-cancel-job="${escapeHtml(job.id)}"${cancelling || job.status === 'cancelling' ? ' disabled' : ''}>${cancelling || job.status === 'cancelling' ? '終止中…' : '■ 強制終止'}</button>` : ''}</div>
-    <p class="job-meta">提交：${escapeHtml(jobTime(job.created))}<br>開始：${escapeHtml(job.started ? jobTime(job.started) : '尚未開始／未記錄')} · ${endLabel}：${escapeHtml(job.finished ? jobTime(job.finished) : '尚未結束／未記錄')}</p>
+    <p class="job-meta">提交：${escapeHtml(jobTime(job.created))}<br>開始：${escapeHtml(job.started ? jobTime(job.started) : '尚未開始／未記錄')} · ${endLabel}：${escapeHtml(job.finished ? jobTime(job.finished) : '尚未結束／未記錄')}${job.billing_status === 'pending' ? '<br>點數確認中，連線恢復後自動重試。' : job.finished && job.billing_status === 'reserved' ? '<br>點數結算待連線，自動重試中。' : ''}</p>
     <dl class="job-origin"><dt>平台</dt><dd>${escapeHtml(origin.platform || '未記錄')}</dd><dt>設備</dt><dd>${escapeHtml(origin.device || '未記錄')}</dd><dt>使用者（來源回報）</dt><dd>${escapeHtml(origin.user || '未記錄')}</dd><dt>設備識別碼</dt><dd>${escapeHtml(origin.device_id || '未記錄')}</dd><dt>任務編號</dt><dd>${escapeHtml(job.id)}</dd></dl>
     <p class="job-meta">參數：${escapeHtml(JSON.stringify(parameters))}</p><details data-job="${escapeHtml(job.id)}"><summary>查看${job.workflow === 'h3_image' ? '完整提示詞' : '正向／負面提示詞'}</summary><b>正向提示詞</b><p class="job-prompt">${escapeHtml(job.prompt || '此舊任務未保留提示詞。')}</p>${job.workflow === 'h3_image' ? '' : `<b>負面提示詞</b><p class="job-prompt">${escapeHtml(negative || '未填寫')}</p>`}</details>
     <button class="secondary-button" data-recipe-job="${escapeHtml(job.id)}">儲存為生成配方</button>
@@ -716,10 +716,14 @@ async function submitPrompt() {
     if (!lastImage) { toast('請選擇尾幀圖片，或將尾幀約束改為不使用'); return; }
   }
   if (workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
+  const preciseMode = video ? false : state.preciseMode;
+  const signature = JSON.stringify([finalPrompt, images, lastImage, workflow, parameters, preciseMode]);
+  const retry = state.pendingGeneration?.signature === signature;
   state.checkingCredits = true;
-  try { await window.qianmiMembership.ensureCredit(workflow, images.length); }
+  try { await window.qianmiMembership.ensureCredit(workflow, images.length, retry); }
   catch (error) { toast(String(error.message || error)); return; }
   finally { state.checkingCredits = false; }
+  if (!retry) state.pendingGeneration = { signature, id: crypto.randomUUID().replaceAll('-', '') };
   $('welcome').classList.add('hidden');
   const target = currentFeed();
   appendUserMessage(finalPrompt, lastImage ? [...images, lastImage] : images);
@@ -728,8 +732,14 @@ async function submitPrompt() {
   if (svi) { $('svi-prompt-2').value = ''; $('svi-prompt-3').value = ''; resizePrompt(); }
   if (!video) state.images = [];
   renderImageTray(); setBusy(true); scrollFeed(true);
-  try { await invoke('generate_images', { prompt: finalPrompt, images, lastImage, workflow, parameters, preciseMode: video ? false : state.preciseMode }); }
-  catch (e) { progress.className = 'message error-card'; progress.textContent = `工作無法啟動：${e}`; setBusy(false); toast('生成啟動失敗'); }
+  try { await invoke('generate_images', { prompt: finalPrompt, images, lastImage, workflow, parameters, preciseMode, requestId: state.pendingGeneration.id }); }
+  catch (e) {
+    progress.className = 'message error-card'; progress.textContent = `工作連線中斷：${e}。可在共用任務查看，原內容重試沿用同一筆請求。`;
+    if (!promptInput.value) promptInput.value = svi ? segments[0] : finalPrompt;
+    if (svi) { if (!$('svi-prompt-2').value) $('svi-prompt-2').value = segments[1]; if (!$('svi-prompt-3').value) $('svi-prompt-3').value = segments[2]; }
+    if (!video) state.images = images;
+    resizePrompt(); renderImageTray(); setBusy(false); toast('工作連線中斷');
+  }
   finally { window.qianmiMembership.refresh().catch(() => {}); }
 }
 
@@ -800,7 +810,8 @@ listen('generation-progress', event => {
   }
   if (state.currentProgress) {
     if (data.done) {
-      state.currentProgress.className = 'message assistant-label'; state.currentProgress.textContent = `♡ ${data.message}`;
+      state.pendingGeneration = null;
+      state.currentProgress.className = 'message assistant-label'; state.currentProgress.textContent = `♡ ${data.message}${data.billingStatus === 'reserved' ? ' 點數結算待連線，自動重試中。' : ''}`;
       setBusy(false); toast(data.message);
     } else if (!result && !data.error) {
       state.currentProgress.innerHTML = `<span class="spinner"></span><span>${escapeHtml(data.message)}</span>`;

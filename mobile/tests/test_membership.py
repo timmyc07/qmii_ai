@@ -54,6 +54,10 @@ class MembershipTest(unittest.TestCase):
         self.owner_headers = ORIGIN | {'X-Qianmi-CSRF': response.json()['csrf']}
         self.admin_id = self.owner.post('/api/membership/bootstrap', headers=self.owner_headers,
                                         json=dict(email='admin@example.com', name='管理員', password=PASSWORD)).json()['id']
+        self.admin = TestClient(self.app, base_url='http://localhost:8787')
+        self.clients.append(self.admin)
+        login = self.admin.post('/api/membership/login', headers=ORIGIN, json=dict(email='admin@example.com', password=PASSWORD)).json()
+        self.admin_headers = ORIGIN | {'X-Qianmi-CSRF': login['csrf']}
 
     def tearDown(self):
         self.release.set()
@@ -73,7 +77,7 @@ class MembershipTest(unittest.TestCase):
         return client, ORIGIN | {'X-Qianmi-CSRF': value['csrf']}, value['member']['id']
 
     def fund(self, member_id, amount=100, request_id=None):
-        return self.owner.post(f'/api/admin/members/{member_id}/credits', headers=self.owner_headers,
+        return self.admin.post(f'/api/admin/members/{member_id}/credits', headers=self.admin_headers,
                                json=dict(amount=amount, reason='測試儲值', request_id=request_id or secrets.token_hex(16)))
 
     def job(self, client, headers, **overrides):
@@ -160,7 +164,7 @@ class MembershipTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()['reserved_points'], expected)
         self.assertEqual(self.balance(client), 68)
-        self.owner.put('/api/admin/membership', headers=self.owner_headers,
+        self.admin.put('/api/admin/membership', headers=self.admin_headers,
                        json=dict(registration_open=True, image_points=4, video_points=12))
         self.release.set()
         self.assertEqual(self.wait_job(client, response.json()['id'])['status'], 'completed')
@@ -219,7 +223,7 @@ class MembershipTest(unittest.TestCase):
 
     def test_password_reset_is_single_use_expires_and_revokes_sessions(self):
         client, headers, member_id = self.register()
-        issued = self.owner.post(f'/api/admin/members/{member_id}/reset', headers=self.owner_headers).json()
+        issued = self.admin.post(f'/api/admin/members/{member_id}/reset', headers=self.admin_headers).json()
         self.assertNotEqual(self.app.state.store.members.accounts.get(member_id)['reset_hash'], issued['token'])
         value = dict(token=issued['token'], password='replacement password')
         self.assertEqual(client.post('/api/membership/reset', headers=ORIGIN, json=value).status_code, 200)
@@ -231,19 +235,19 @@ class MembershipTest(unittest.TestCase):
         self.assertEqual(client.post('/api/membership/password', headers=headers,
                                      json=dict(current_password=value['password'], password=PASSWORD)).status_code, 200)
         self.assertEqual(client.get('/api/session').status_code, 401)
-        token = self.owner.post(f'/api/admin/members/{member_id}/reset', headers=self.owner_headers).json()['token']
-        self.app.state.store.members.accounts.records[member_id]['reset_expires'] = 0
+        token = self.admin.post(f'/api/admin/members/{member_id}/reset', headers=self.admin_headers).json()['token']
+        self.app.state.store.members.accounts.collection.update_one({'_id': member_id}, {'$set': {'reset_expires': 0}})
         self.assertEqual(client.post('/api/membership/reset', headers=ORIGIN,
                                      json=dict(token=token, password=PASSWORD)).status_code, 400)
 
     def test_disable_registration_last_admin_and_bruteforce(self):
         client, headers, member_id = self.register()
-        self.assertEqual(self.owner.put(f'/api/admin/members/{self.admin_id}', headers=self.owner_headers,
+        self.assertEqual(self.admin.put(f'/api/admin/members/{self.admin_id}', headers=self.admin_headers,
                                         json=dict(role='member', active=False)).status_code, 409)
-        self.assertEqual(self.owner.put(f'/api/admin/members/{member_id}', headers=self.owner_headers,
+        self.assertEqual(self.admin.put(f'/api/admin/members/{member_id}', headers=self.admin_headers,
                                         json=dict(role='member', active=False)).status_code, 200)
         self.assertEqual(client.get('/api/jobs').status_code, 401)
-        self.owner.put('/api/admin/membership', headers=self.owner_headers,
+        self.admin.put('/api/admin/membership', headers=self.admin_headers,
                        json=dict(registration_open=False, image_points=3, video_points=10))
         self.assertEqual(client.post('/api/membership/register', headers=ORIGIN,
                                      json=dict(email='new@example.com', name='new', password=PASSWORD)).status_code, 403)
@@ -257,11 +261,11 @@ class MembershipTest(unittest.TestCase):
         self.fund(member_id, 10)
         store = self.app.state.store
         job_id = secrets.token_hex(16)
+        store.members.points.reserve(dict(member_id=member_id, request_id=job_id, job_id=job_id,
+                                          fingerprint='interrupted', reserved_points=3, unit_points=3, auth_version=0, workflow='quick'), store.members.host_id)
         with store.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            store.members.adjust(db, member_id, -3, '生成預扣', member_id, 'reserve:' + job_id, job_id)
-            db.execute('INSERT INTO jobs(id,request_id,status,message,prompt,workflow,sources,results,created,updated,member_id,reserved_points,unit_points) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       (job_id, job_id, 'running', '', 'test', 'quick', '[]', '[]', time.time(), time.time(), member_id, 3, 3))
+            db.execute('INSERT INTO jobs(id,request_id,status,message,prompt,workflow,sources,results,created,updated,member_id,reserved_points,unit_points,billing_fingerprint,billing_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                       (job_id, job_id, 'running', '', 'test', 'quick', '[]', '[]', time.time(), time.time(), member_id, 3, 3, 'interrupted', 'reserved'))
         app = create_app(self.root / 'state', self.root / 'output', runner=lambda *args: [], settings_path=self.root / 'settings.json')
         with TestClient(app, base_url='http://localhost:8787'):
             self.assertEqual(store.job(job_id)['status'], 'failed')

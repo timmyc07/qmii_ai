@@ -55,7 +55,7 @@ class DesktopBridgeTest(unittest.TestCase):
     def test_cancel_bridge_targets_job_and_cancelled_generation_finishes(self):
         job = dict(id='a' * 32, results=[], result_files=[], status='cancelled', message='任務已終止')
         for action, payload in [('cancel', {'job_id': job['id']}),
-                                ('generate', dict(prompt='cat', workflow='quick', images=[]))]:
+                                ('generate', dict(prompt='cat', workflow='quick', images=[], request_id='c' * 32))]:
             with self.subTest(action=action), patch('mobile.desktop.StudioClient') as client_class, \
                     patch('mobile.desktop.sys.argv', ['mobile.desktop', action]), \
                     patch('mobile.desktop.sys.stdin', Mock(read=Mock(return_value=json.dumps(payload)))), \
@@ -67,6 +67,7 @@ class DesktopBridgeTest(unittest.TestCase):
                     self.assertEqual(client.request.call_args_list[0].args, ('/api/jobs/' + job['id'] + '/cancel', {}))
                     self.assertEqual(client.request.call_args_list[0].kwargs, {'method': 'POST'})
                 else:
+                    self.assertEqual(client.request.call_args_list[0].args[1]['request_id'], payload['request_id'])
                     report = emit.call_args.args[0]
                     self.assertTrue(report['done'])
                     self.assertIsNone(report['error'])
@@ -80,7 +81,7 @@ class DesktopBridgeTest(unittest.TestCase):
             for index, path in enumerate(paths):
                 path.write_bytes(f'image{index}'.encode())
             payload = dict(prompt='cat blinks', workflow='h3_image', images=list(map(str, paths[:4])),
-                           last_image=str(paths[4]), parameters=dict(end_frame='custom'))
+                           last_image=str(paths[4]), parameters=dict(end_frame='custom'), request_id='d' * 32)
             job = dict(id='fixture', results=['a', 'b', 'c', 'd'],
                        result_files=[f'2026-10-17/fixture_{index}.mp4' for index in range(4)], status='completed', message='影片完成')
             with patch('mobile.desktop.StudioClient') as client_class, \
@@ -194,12 +195,12 @@ with patch('mobile.settings.SettingsStore.read', side_effect=RuntimeError('工�
                     self.assertEqual(received[0]['workflow'], 'quick')
                     admin = desktop.request('/api/membership/bootstrap',
                                             dict(email='admin@example.com', name='管理員', password='desktop test password'))
-                    desktop.request('/api/admin/members/' + admin['id'] + '/credits',
-                                    dict(amount=10, reason='測試', request_id='f' * 32))
                     member = StudioClient(url, root / 'state' / 'access-code.txt', member=True)
                     member.request('/api/membership/login', dict(email='admin@example.com', password='desktop test password'))
                     restored = StudioClient(url, root / 'state' / 'access-code.txt', member=True)
                     restored.connect()
+                    restored.request('/api/admin/members/' + admin['id'] + '/credits',
+                                     dict(amount=10, reason='測試', request_id='f' * 32))
                     self.assertEqual(restored.request('/api/membership/me')['member']['balance'], 10)
                     restored.request('/api/jobs', dict(prompt='會員桌面生成', workflow='quick', images=[], request_id='a' * 32))
                     restored.request('/api/logout', method='POST')
