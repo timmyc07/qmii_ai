@@ -61,6 +61,7 @@ function setStudioMode(mode) {
   state.drafts[state.studioMode] = { prompt: promptInput.value, images: [...state.images] };
   state.chatScroll[state.studioMode] = { top: conversation.scrollTop, following: followingLatest };
   if (state.studioMode === 'h3_image' && [...$('video-form').querySelectorAll('input, select')].every(input => input.checkValidity())) state.generation.h3_image = videoParameters();
+  if (state.studioMode === 'svi_image' && [...$('svi-form').querySelectorAll('input')].every(input => input.checkValidity())) state.generation.svi_image = sviParameters();
   cancelAnimationFrame(scrollFrame); scrollFrame = 0;
   state.studioMode = mode;
   const h3 = mode === 'h3_image', svi = mode === 'svi_image', video = h3 || svi;
@@ -93,7 +94,56 @@ function setStudioMode(mode) {
     previousScrollTop = conversation.scrollTop;
   });
   if (h3) loadVideoParameters(state.generation.h3_image || {});
-  if (svi) $('svi-seed').value = state.generation.svi_image?.seed ?? '';
+  if (svi) { $('svi-seed').value = state.generation.svi_image?.seed ?? ''; renderSviLoras(); }
+}
+
+function sviParameters() {
+  const values = { ...state.generation.svi_image };
+  if ($('svi-seed').value === '') delete values.seed;
+  else values.seed = Number($('svi-seed').value);
+  if ($('negative-prompt').value === '') delete values.negative;
+  else values.negative = $('negative-prompt').value;
+  for (const side of ['high', 'low']) if (values[side + '_lora']) values[side + '_lora'] = {
+    ...values[side + '_lora'], strength: Number($('svi-' + side + '-lora-strength').value)
+  };
+  return values;
+}
+
+function renderSviLoras() {
+  const values = state.generation.svi_image || {}, busy = state.generating || state.sviImporting;
+  for (const side of ['high', 'low']) {
+    const selection = values[side + '_lora'];
+    const label = $('svi-' + side + '-lora-name');
+    label.textContent = selection ? selection.name.split('/').pop() : '未選擇額外 LoRA';
+    label.title = selection?.name || '';
+    $('svi-' + side + '-lora-pick').disabled = Boolean(busy);
+    $('svi-' + side + '-lora-clear').disabled = busy || !selection;
+    const strength = $('svi-' + side + '-lora-strength');
+    strength.disabled = busy || !selection;
+    strength.value = selection?.strength ?? .5;
+  }
+  $('svi-save-settings').disabled = Boolean(busy);
+  $('send').disabled = Boolean(busy);
+}
+
+async function chooseSviLora(side) {
+  if (state.generating || state.sviImporting) return;
+  state.sviImporting = true; renderSviLoras();
+  const status = $('svi-lora-status');
+  try {
+    const path = await open({ multiple: false, directory: false, title: `選擇 ${side.toUpperCase()} 額外 LoRA`, filters: [{ name: 'LoRA', extensions: ['safetensors'] }] });
+    if (!path) return;
+    status.textContent = '正在匯入本機 LoRA，請稍候…';
+    const { name } = await invoke('import_svi_lora', { path });
+    const values = { ...state.generation.svi_image };
+    values[side + '_lora'] = { name, strength: values[side + '_lora']?.strength ?? .5 };
+    state.generation.svi_image = values;
+    toast(`${side.toUpperCase()} LoRA 已選擇`);
+  } catch (error) { toast(`LoRA 匯入失敗：${error}`); }
+  finally {
+    state.sviImporting = false; renderSviLoras();
+    status.textContent = '權重 0 為停用；建議先用 0.3～0.5，再依作者說明調整。';
+  }
 }
 
 function setupVideoModes() {
@@ -134,8 +184,22 @@ function setupVideoModes() {
   $('video-reset-settings').onclick = () => { loadVideoParameters(); toast('已還原影片配方，儲存後會成為預設'); };
   $('video-form').onsubmit = event => { event.preventDefault(); submitPrompt(); };
   $('svi-form').onsubmit = event => { event.preventDefault(); submitPrompt(); };
+  for (const side of ['high', 'low']) {
+    $('svi-' + side + '-lora-pick').onclick = () => chooseSviLora(side);
+    $('svi-' + side + '-lora-clear').onclick = () => {
+      delete state.generation.svi_image[side + '_lora']; renderSviLoras();
+    };
+    $('svi-' + side + '-lora-strength').oninput = event => {
+      if (event.target.checkValidity()) state.generation.svi_image[side + '_lora'].strength = Number(event.target.value);
+    };
+  }
+  $('svi-save-settings').onclick = async () => {
+    for (const input of $('svi-form').querySelectorAll('input')) if (!input.reportValidity()) return;
+    state.generation.svi_image = sviParameters();
+    if (await persistSettings()) toast('高耗能模式預設已儲存');
+  };
   $('svi-seed').oninput = () => {
-    const values = currentParameters();
+    const values = { ...state.generation.svi_image };
     if ($('svi-seed').value === '') delete values.seed;
     else if ($('svi-seed').checkValidity()) values.seed = Number($('svi-seed').value);
     state.generation.svi_image = values;
@@ -553,7 +617,7 @@ function openMobileConnection() {
 
 function appendUserMessage(text, images) {
   const node = document.createElement('article'); node.className = 'message user-message';
-  if (!images.length || state.studioMode === 'svi_image') {
+  if (!images.length) {
     const prompt = document.createElement('div'); prompt.className = 'reference-prompt'; prompt.textContent = text; node.appendChild(prompt);
   }
   if (images.length) {
@@ -578,13 +642,14 @@ function setBusy(value) {
   renderWorkflow();
   $('send').classList.toggle('busy', value);
   $('send').innerHTML = value ? '<span>✧</span>' : '<span>↑</span>';
+  renderSviLoras();
 }
 
 async function submitPrompt() {
   const svi = state.studioMode === 'svi_image', h3 = state.studioMode === 'h3_image', video = h3 || svi;
   if (!promptInput.reportValidity() || !$('negative-prompt').reportValidity()) return;
   for (const input of $(svi ? 'svi-form' : h3 ? 'video-form' : 'generation-parameters').querySelectorAll('input, select')) if (!input.reportValidity()) return;
-  if (state.generating) return;
+  if (state.generating || state.sviImporting) return;
   const segments = svi ? [promptInput.value, $('svi-prompt-2').value, $('svi-prompt-3').value] : [];
   if (svi && segments.some(text => !text.trim())) { toast('請完整填寫三段提示詞'); return; }
   if (svi && ![$('svi-prompt-2'), $('svi-prompt-3')].every(input => input.reportValidity())) return;
@@ -592,7 +657,7 @@ async function submitPrompt() {
   if (!finalPrompt.trim()) { toast('先寫下想法吧 ♡'); promptInput.focus(); return; }
   const images = [...state.images];
   const workflow = video ? state.studioMode : state.workflow;
-  const parameters = h3 ? videoParameters() : currentParameters();
+  const parameters = h3 ? videoParameters() : svi ? sviParameters() : currentParameters();
   if (!h3 && (!svi || $('negative-prompt').value)) parameters.negative = $('negative-prompt').value;
   if (svi) parameters.segment_prompts = segments;
   if (svi && images.length !== 1) { toast('請選擇一張首幀圖片'); return; }

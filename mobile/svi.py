@@ -1,8 +1,13 @@
 """Three-part Wan 2.2 SVI Pro video in a task-owned ComfyUI process."""
 import os
+import hashlib
+import json
 from pathlib import Path
+import shutil
 import socket
+import struct
 import subprocess
+import tempfile
 import time
 from urllib.error import URLError
 
@@ -25,6 +30,56 @@ NEGATIVE = '过曝，静态，细节模糊不清，作品，画作，静止，�
 LIGHTNING_HIGH = FILES['loras'][2].replace('.safetensors', '_comfy.safetensors')
 
 
+def import_lora(path):
+    source = Path(path)
+    if not source.is_absolute() or source.suffix.lower() != '.safetensors' or not source.is_file():
+        raise ValueError('請選擇本機的 .safetensors LoRA 檔案。')
+    if source.name.casefold() in {name.casefold() for name in [*FILES['loras'], LIGHTNING_HIGH]}:
+        raise ValueError('SVI 與 Lightning 已隨配方載入，請選擇其他額外 LoRA。')
+    try:
+        with source.open('rb') as weights:
+            length = struct.unpack('<Q', weights.read(8))[0]
+            if not 2 <= length <= min(16 * 1024**2, source.stat().st_size - 8):
+                raise ValueError()
+            header = json.loads(weights.read(length))
+            if not isinstance(header, dict) or not any(key.endswith(('.lora_A.weight', '.lora_down.weight', '.lora_A', '.lora_down')) for key in header) \
+                    or not any(key.endswith(('.lora_B.weight', '.lora_up.weight', '.lora_B', '.lora_up')) for key in header):
+                raise ValueError()
+            weights.seek(0)
+            digest = hashlib.file_digest(weights, 'sha256').hexdigest()
+            weights.seek(8 + length)
+            converted = {key.replace('.diff_m', '.modulation.diff'): value for key, value in header.items()}
+            if len(converted) != len(header):
+                raise ValueError()
+            name = f'svi_custom/{digest}/{source.with_suffix(".safetensors").name}'
+            target = COMFY / 'models' / 'loras' / name
+            if target.is_file():
+                return name
+            encoded = json.dumps(converted, separators=(',', ':')).encode('utf-8')
+            encoded += b' ' * (-len(encoded) % 8)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=target.parent) as directory:
+                temporary = Path(directory) / 'lora.safetensors'
+                with temporary.open('wb') as output:
+                    output.write(struct.pack('<Q', len(encoded)))
+                    output.write(encoded)
+                    shutil.copyfileobj(weights, output)
+                temporary.replace(target)
+            return name
+    except (OSError, ValueError, struct.error):
+        raise ValueError('無法匯入此 LoRA，請確認檔案完整且為 .safetensors LoRA。') from None
+
+
+def validate_loras(parameters):
+    root = (COMFY / 'models' / 'loras').resolve()
+    for side in ('high', 'low'):
+        selection = parameters.get(side + '_lora')
+        if selection and selection['strength'] != 0:
+            target = root / selection['name']
+            if not target.resolve().is_relative_to(root / 'svi_custom') or not target.is_file():
+                raise ValueError(f'{side.upper()} LoRA 已不存在，請重新選擇本機檔案。')
+
+
 def graph(parameters, seed, image):
     value = {
         'clip': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': FILES['text_encoders'][0], 'type': 'wan', 'device': 'default'}},
@@ -41,6 +96,7 @@ def graph(parameters, seed, image):
         'schedule': {'class_type': 'BasicScheduler', 'inputs': {'model': ['high_lightning', 0], 'scheduler': 'simple', 'steps': 8, 'denoise': 1}},
         'sigmas': {'class_type': 'SplitSigmas', 'inputs': {'sigmas': ['schedule', 0], 'step': 4}},
     }
+    models = {}
     for index, side in enumerate(('high', 'low')):
         value[side] = {'class_type': 'UnetLoaderGGUF', 'inputs': {'unet_name': FILES['diffusion_models'][index]}}
         value[side + '_shift'] = {'class_type': 'ModelSamplingSD3', 'inputs': {'model': [side, 0], 'shift': 6}}
@@ -48,6 +104,13 @@ def graph(parameters, seed, image):
             'model': [side + '_shift', 0], 'lora_name': FILES['loras'][index], 'strength_model': 1}}
         value[side + '_lightning'] = {'class_type': 'LoraLoaderModelOnly', 'inputs': {
             'model': [side + '_svi', 0], 'lora_name': FILES['loras'][3] if index else LIGHTNING_HIGH, 'strength_model': 1}}
+        models[side] = [side + '_lightning', 0]
+        extra = parameters.get(side + '_lora')
+        if extra and extra['strength'] != 0:
+            value[side + '_extra'] = {'class_type': 'LoraLoaderModelOnly', 'inputs': {
+                'model': models[side], 'lora_name': str(Path(extra['name'])), 'strength_model': extra['strength']}}
+            models[side] = [side + '_extra', 0]
+    value['schedule']['inputs']['model'] = models['high']
     for index, prompt in enumerate(parameters['segment_prompts']):
         part = f'part{index + 1}'
         value[part + '_text'] = {'class_type': 'CLIPTextEncode', 'inputs': {'clip': ['clip', 0], 'text': prompt}}
@@ -58,7 +121,7 @@ def graph(parameters, seed, image):
             value[part]['inputs']['prev_samples'] = [f'part{index}_low', 0]
         for side in ('high', 'low'):
             value[part + '_guide_' + side] = {'class_type': 'ScheduledCFGGuidance', 'inputs': {
-                'model': [side + '_lightning', 0], 'positive': [part, 0], 'negative': [part, 1],
+                'model': models[side], 'positive': [part, 0], 'negative': [part, 1],
                 'cfg': 1, 'start_percent': 0, 'end_percent': 1}}
             value[part + '_' + side] = {'class_type': 'SamplerCustomAdvanced', 'inputs': {
                 'noise': ['noise' if side == 'high' else 'no_noise', 0], 'guider': [part + '_guide_' + side, 0],
@@ -120,6 +183,10 @@ def stop_server(process):
 
 def run(parameters, seed, output, progress, source):
     ensure_models()
+    try:
+        validate_loras(parameters)
+    except ValueError as exc:
+        raise ComfyWorkflowError(str(exc)) from None
     try:
         queue = request_json('/queue', url='http://127.0.0.1:8188')
     except URLError as exc:

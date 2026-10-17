@@ -1,6 +1,10 @@
 # 這套 SVI 工作流的 LoRA 相容指南
 
-截圖中的兩個 `Power Lora Loader (rgthree)` 是額外疊加入口：`LoRA Loader HIGH` 接高噪模型，`LoRA Loader LOW` 接低噪模型。可加入多個 LoRA，但空白也能執行；它們與必要的 SVI Pro／Lightning LoRA 是不同用途。千迷AI 新頁面目前載入固定的必要配方，額外入口仍在原 ComfyUI 工作流，沒有自動載入本機所有 LoRA。
+截圖中的兩個 `Power Lora Loader (rgthree)` 是額外疊加入口：`LoRA Loader HIGH` 接高噪模型，`LoRA Loader LOW` 接低噪模型。它們與必要的 SVI Pro／Lightning LoRA 是不同用途。千迷AI 頁面提供 HIGH／LOW 各一個本機 `.safetensors` 選擇器，獨立調整權重或清除；不選擇時沿用必要配方，不會自動載入其他檔案。
+
+權重預設 0.5，可設 -2～2；0 會跳過該項額外 LoRA。兩側都疊加在各自必要的 SVI／Lightning 後，且三段使用同一套選擇。按「儲存為高耗能模式預設」可保留選擇與權重；僅清除一側不會影響另一側或必要配方。
+
+選擇時會建立本機匯入副本，原檔不變；同名不同內容以 SHA256 區分，重選同一檔案不重複複製。匯入副本保存在 Portable `models/loras/svi_custom`，不提交 Git、不傳到網路。清除按鈕只解除選擇，保留副本供已排隊任務使用。讀取檔案格式不代表已驗證模型家族相容性，仍需依下列條件選擇。
 
 本流程的基礎是 [Wan 2.2 I2V A14B](https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B)，具有高噪與低噪兩個專家模型。挑選時需核對模型家族、14B／A14B、I2V、適用噪聲支線，以及作者要求的步數／觸發詞；只有 `.safetensors` 副檔名不能代表相容。
 

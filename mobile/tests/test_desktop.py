@@ -17,6 +17,17 @@ from mobile.server import create_app
 
 
 class DesktopBridgeTest(unittest.TestCase):
+    def test_lora_import_stays_local_without_starting_studio_service(self):
+        with patch('mobile.desktop.StudioClient') as client, \
+                patch('mobile.desktop.sys.argv', ['mobile.desktop', 'import_svi_lora']), \
+                patch('mobile.desktop.sys.stdin', Mock(read=Mock(return_value=json.dumps({'path': 'D:/style.safetensors'})))), \
+                patch('mobile.svi.import_lora', return_value='svi_custom/registered/style.safetensors') as imported, \
+                patch('mobile.desktop.emit') as emit:
+            main()
+        imported.assert_called_once_with('D:/style.safetensors')
+        client.assert_not_called()
+        self.assertEqual(emit.call_args.args[0], {'name': 'svi_custom/registered/style.safetensors'})
+
     def test_cancel_bridge_targets_job_and_cancelled_generation_finishes(self):
         job = dict(id='a' * 32, results=[], result_files=[], status='cancelled', message='任務已終止')
         for action, payload in [('cancel', {'job_id': job['id']}),

@@ -411,6 +411,13 @@ button:disabled { cursor: wait; opacity: .6; }
 .svi-recipe { display: grid; gap: .55rem; padding: .9rem; border-radius: 1rem; background: #f2e9f8; font-size: .78rem; line-height: 1.6; }
 .svi-recipe span { color: var(--muted); }
 #svi-form > input { width: 100%; min-width: 0; box-sizing: border-box; padding: .7rem; border: 1px solid #dccfec; border-radius: .85rem; font: inherit; color: var(--ink); }
+.svi-lora { display: grid; gap: .6rem; padding: .8rem; margin: .7rem 0; border: 1px solid var(--line); border-radius: 1rem; background: #fff; font-size: .8rem; }
+.svi-lora > span { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: .72rem; }
+.svi-lora-actions { display: flex; align-items: center; gap: .4rem; }
+.svi-lora-actions .secondary-button { flex: 1; padding: .6rem; font-size: .75rem; }
+.svi-lora input { min-width: 0; width: 100%; padding: .6rem; border: 1px solid #dccfec; border-radius: .7rem; font: inherit; color: var(--ink); }
+.svi-lora label { margin: 0; }
+#svi-form > .secondary-button { width: 100%; margin-top: .6rem; }
 .svi-mode .composer-shell textarea { min-height: 2.5rem; max-height: 8dvh; }
 .svi-mode #negative-prompt { min-height: 1.8rem; max-height: 5dvh; }
 .svi-mode .welcome { padding: .8rem 1rem; }

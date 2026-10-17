@@ -118,11 +118,17 @@
         <p class="creation-intro">高耗能圖片轉影片模式</p>
         <p class="creation-help">上傳一張首幀，依序填寫三段提示詞。後兩段承接前一段的動作，最後合併為一支無聲影片。</p>
         <div class="svi-recipe"><strong>三段續接 · Wan 2.2 SVI Pro</strong><span>480 × 720 · 16 fps · 約 14.6 秒</span><span>每段 81 幀 · Euler 8 步 · 高／低噪 Q8</span></div>
+        <section class="creation-section"><h2>額外 LoRA</h2><p class="creation-help">HIGH／LOW 各可選一個本機 LoRA，三段共用。SVI Pro 與 Lightning 已固定保留；不選擇就沿用原配方。</p>
+          <div class="svi-lora"><strong>HIGH · 高噪支線</strong><span id="svi-high-lora-name">未選擇額外 LoRA</span><div class="svi-lora-actions"><button id="svi-high-lora-pick" type="button" class="secondary-button">選擇本機 LoRA</button><button id="svi-high-lora-clear" type="button" class="icon-button" aria-label="清除 HIGH LoRA">×</button></div><label for="svi-high-lora-strength">HIGH 權重</label><input id="svi-high-lora-strength" type="number" min="-2" max="2" step="0.05" value="0.5" required></div>
+          <div class="svi-lora"><strong>LOW · 低噪支線</strong><span id="svi-low-lora-name">未選擇額外 LoRA</span><div class="svi-lora-actions"><button id="svi-low-lora-pick" type="button" class="secondary-button">選擇本機 LoRA</button><button id="svi-low-lora-clear" type="button" class="icon-button" aria-label="清除 LOW LoRA">×</button></div><label for="svi-low-lora-strength">LOW 權重</label><input id="svi-low-lora-strength" type="number" min="-2" max="2" step="0.05" value="0.5" required></div>
+          <p id="svi-lora-status" class="creation-help" role="status" aria-live="polite">權重 0 為停用；建議先用 0.3～0.5，再依作者說明調整。</p>
+        </section>
         <div class="creation-section"><h2>任務結束，自動釋放</h2><p class="creation-help">完成、失敗或強制終止後，都會清理模型與快取，確認生成程序退出後再執行下一項任務。</p><p class="creation-help">此模式會大量使用記憶體，首次載入需要較長時間。已完成的影片會保留，可播放與下載。</p></div>
         <label for="svi-seed">種子 Seed</label><input id="svi-seed" type="number" min="0" max="9007199254740991" step="1" placeholder="留白每次隨機">
         <p class="creation-help">三段共用同一個種子；負面提示詞共用於三段，留白沿用作者配方。</p>
         <button id="svi-example" type="button" class="secondary-button">載入三段動作範例</button>
-        <details class="creation-help"><summary>額外 LoRA 怎麼選？</summary><p>選擇作者明確標示 Wan 2.2 I2V A14B 相容的角色、風格或動作 LoRA。HIGH 檔只接高噪支線，LOW 檔只接低噪支線；單檔依作者說明使用，不直接複製到兩邊。</p><p>SVI Pro 與 Lightning 已隨配方載入。額外 LoRA 是疊加用途；Qwen、H3、SD、FLUX 及 Wan 5B／1.3B 的 LoRA 不適用。Wan 2.1 或 T2V 版本需作者另行確認 I2V 相容性。</p><p>建議先單組、低權重測試，三段維持同組 LoRA 與觸發詞。目前此頁使用固定配方，額外 LoRA 的 HIGH／LOW 入口位於原 ComfyUI 工作流。</p></details>
+        <button id="svi-save-settings" type="button" class="secondary-button">儲存為高耗能模式預設</button>
+        <details class="creation-help"><summary>額外 LoRA 怎麼選？</summary><p>選擇作者明確標示 Wan 2.2 I2V A14B 相容的角色、風格或動作 LoRA。HIGH 檔只接高噪支線，LOW 檔只接低噪支線；單檔依作者說明使用，不直接複製到兩邊。</p><p>SVI Pro 與 Lightning 已隨配方載入。額外 LoRA 是疊加用途；Qwen、H3、SD、FLUX 及 Wan 5B／1.3B 的 LoRA 不適用。Wan 2.1 或 T2V 版本需作者另行確認 I2V 相容性。</p><p>三段維持同組 LoRA、權重與觸發詞。只選擇檔案不代表相容性已驗證，請核對模型作者的使用說明。</p></details>
       </form>
     </aside>
   </div>

@@ -438,6 +438,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 validate_h3_sources(parameters, value.images, value.last_image)
             elif value.workflow == 'svi_image':
                 validate_svi_sources(parameters, value.images, value.last_image)
+                from .svi import validate_loras
+                validate_loras(parameters)
                 if value.precise_mode:
                     raise ValueError('高耗能影片模式使用三段提示詞，不套用圖片精準模式。')
             elif value.last_image is not None:

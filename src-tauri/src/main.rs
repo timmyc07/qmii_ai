@@ -147,6 +147,20 @@ async fn studio_jobs() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn import_svi_lora(path: String) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        serde_json::from_str(&bridge(
+            "import_svi_lora",
+            serde_json::json!({"path": path}),
+            None,
+        )?)
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn cancel_generation(job_id: String) -> Result<(), String> {
     if job_id.len() != 32 || !job_id.bytes().all(|value| value.is_ascii_hexdigit()) {
         return Err("找不到任務。".into());
@@ -249,6 +263,7 @@ fn main() {
             generate_images,
             cancel_generation,
             studio_jobs,
+            import_svi_lora,
             window_minimize,
             window_toggle_maximize,
             window_close,

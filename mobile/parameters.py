@@ -9,6 +9,12 @@ def recipe_defaults():
             'nsfw_adv': dict(steps=10, cfg=1, lokr_strength=1, lightning_strength=.45)}
 
 
+class SviLora(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(max_length=512, pattern=r'^svi_custom/[0-9a-f]{64}/[^/\\]+\.safetensors$')
+    strength: float = Field(default=.5, ge=-2, le=2, allow_inf_nan=False)
+
+
 class Parameters(BaseModel):
     model_config = ConfigDict(extra='forbid')
     steps: int | None = Field(default=None, ge=4, le=60)
@@ -34,17 +40,21 @@ class Parameters(BaseModel):
     identity_prompt: bool | None = Field(default=None, strict=True)
     refmod: bool | None = Field(default=None, strict=True)
     segment_prompts: list[Annotated[str, Field(min_length=1, max_length=2500)]] | None = Field(default=None, min_length=3, max_length=3)
+    high_lora: SviLora | None = None
+    low_lora: SviLora | None = None
 
 
 def validate_parameters(value, workflow=None):
     result = Parameters.model_validate(value).model_dump(exclude_none=True)
     if workflow == 'svi_image':
-        if set(result) - {'seed', 'negative', 'segment_prompts'}:
-            raise ValueError('高耗能模式沿用 SVI 三段配方，僅可設定三段提示詞、負面提示詞與種子。')
+        if set(result) - {'seed', 'negative', 'segment_prompts', 'high_lora', 'low_lora'}:
+            raise ValueError('高耗能模式僅可設定三段提示詞、負面提示詞、種子與 HIGH／LOW 額外 LoRA。')
         if 'segment_prompts' in result and any(not text.strip() for text in result['segment_prompts']):
             raise ValueError('請完整填寫三段提示詞。')
     elif 'segment_prompts' in result:
         raise ValueError('三段提示詞僅適用於高耗能圖片轉影片模式。')
+    elif set(result) & {'high_lora', 'low_lora'}:
+        raise ValueError('HIGH／LOW 額外 LoRA 僅適用於高耗能圖片轉影片模式。')
     elif workflow == 'h3_image':
         allowed = {'width', 'height', 'duration', 'seed', 'video_profile', 'steps', 'sampler',
                    'shift_video', 'shift_audio', 'lora_strength', 'resize_method', 'crop',

@@ -100,9 +100,13 @@ def main():
     if action == 'load_settings':
         emit(SettingsStore().read())
         return
-    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel') else {}
+    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel', 'import_svi_lora') else {}
     if action == 'save_settings':
         emit(SettingsStore().save(payload))
+        return
+    if action == 'import_svi_lora':
+        from .svi import import_lora
+        emit({'name': import_lora(payload['path'])})
         return
     client = StudioClient()
     client.connect()
