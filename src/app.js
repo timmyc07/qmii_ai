@@ -231,6 +231,7 @@ function renderSharedJob(job, cancelling = false) {
     <p class="job-meta">提交：${escapeHtml(jobTime(job.created))}<br>開始：${escapeHtml(job.started ? jobTime(job.started) : '尚未開始／未記錄')} · ${endLabel}：${escapeHtml(job.finished ? jobTime(job.finished) : '尚未結束／未記錄')}</p>
     <dl class="job-origin"><dt>平台</dt><dd>${escapeHtml(origin.platform || '未記錄')}</dd><dt>設備</dt><dd>${escapeHtml(origin.device || '未記錄')}</dd><dt>使用者（來源回報）</dt><dd>${escapeHtml(origin.user || '未記錄')}</dd><dt>設備識別碼</dt><dd>${escapeHtml(origin.device_id || '未記錄')}</dd><dt>任務編號</dt><dd>${escapeHtml(job.id)}</dd></dl>
     <p class="job-meta">參數：${escapeHtml(JSON.stringify(parameters))}</p><details data-job="${escapeHtml(job.id)}"><summary>查看${job.workflow === 'h3_image' ? '完整提示詞' : '正向／負面提示詞'}</summary><b>正向提示詞</b><p class="job-prompt">${escapeHtml(job.prompt || '此舊任務未保留提示詞。')}</p>${job.workflow === 'h3_image' ? '' : `<b>負面提示詞</b><p class="job-prompt">${escapeHtml(negative || '未填寫')}</p>`}</details>
+    <button class="secondary-button" data-recipe-job="${escapeHtml(job.id)}">儲存為生成配方</button>
     ${job.results.map(artworkMarkup).join('')}</article>`;
 }
 
@@ -810,13 +811,17 @@ async function init() {
   setupConversationScroll();
   $('welcome').classList.remove('hidden');
   $('manage-presets').onclick = openPresetManager;
+  $('generation-recipes').onclick = () => openGenerationRecipes();
+  $('studio-maintenance').onclick = openStudioMaintenance;
   $('shared-jobs').onclick = () => {
     let closed = false, refreshTimer;
     const cancelling = new Set();
+    let sharedJobs = [];
     openModal('共用任務', '<div id="shared-job-list" role="status">正在讀取主機佇列…</div>', () => { closed = true; clearTimeout(refreshTimer); });
     const refresh = async () => {
       try {
         const { jobs } = await invoke('studio_jobs');
+        sharedJobs = jobs;
         const list = $('shared-job-list');
         if (closed || !list) return;
         const expanded = new Set([...list.querySelectorAll('details[open]')].map(node => node.dataset.job));
@@ -826,6 +831,8 @@ async function init() {
       } catch (error) { const list = $('shared-job-list'); if (list && !closed) { list.textContent = String(error); refreshTimer = setTimeout(refresh, 5000); } }
     };
     $('shared-job-list').onclick = async event => {
+      const recipeButton = event.target.closest('[data-recipe-job]');
+      if (recipeButton) { closed = true; clearTimeout(refreshTimer); openGenerationRecipes(sharedJobs.find(job => job.id === recipeButton.dataset.recipeJob)); return; }
       const button = event.target.closest('[data-cancel-job]');
       if (!button || button.disabled) return;
       const jobId = button.dataset.cancelJob;

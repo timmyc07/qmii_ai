@@ -17,6 +17,19 @@ from mobile.server import create_app
 
 
 class DesktopBridgeTest(unittest.TestCase):
+    def test_studio_tools_bridge_passes_cleanup_token_and_logs_out(self):
+        payload = dict(action='cleanup', value={'token': 'preview-token'})
+        with patch('mobile.desktop.StudioClient') as client, \
+                patch('mobile.desktop.sys.argv', ['mobile.desktop', 'studio_tools']), \
+                patch('mobile.desktop.sys.stdin', Mock(read=Mock(return_value=json.dumps(payload)))), \
+                patch('mobile.desktop.emit'):
+            main()
+        client.return_value.connect.assert_called_once()
+        self.assertEqual(client.return_value.request.call_args_list[0].args,
+                         ('/api/storage/cleanup', {'token': 'preview-token'}))
+        self.assertEqual(client.return_value.request.call_args_list[0].kwargs, dict(method='POST'))
+        client.return_value.request.assert_called_with('/api/logout', method='POST')
+
     def test_drive_authorization_stays_local(self):
         with patch('mobile.desktop.StudioClient') as client, \
                 patch('mobile.desktop.sys.argv', ['mobile.desktop', 'connect_drive']), \

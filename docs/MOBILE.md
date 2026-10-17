@@ -101,4 +101,4 @@ cargo test --manifest-path src-tauri\Cargo.toml
 
 本次使用[Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)，每次重開會變更網址，適合私人試用且沒有可用性保證。固定網址需設定自己的Cloudflare帳號、網域與named tunnel。服務採短輪詢取得進度，符合Quick Tunnel不支援SSE的限制。
 
-圖片生成依模式使用本機 Turbo CLI 或 ComfyUI Portable，影片模式目前由桌面操作。Qwen 圖片模式的 RefMod 開關停用並標示不相容；H3 開關與安裝方式見 [H3 說明](H3.md)。模型與執行檔不提交至本 repo。
+圖片生成依模式使用本機 Turbo CLI 或 ComfyUI Portable。0.15.0 起手機也可選「H3 圖片生影片」，上傳 1～4 張首幀，於生成參數選擇配方、聲音、RefMod 與尾幀；自選尾幀另外上傳，不占首幀上限。H3 隱藏負面提示詞並停用圖片精準模式；SVI 仍由桌面提交。生成配方與管理功能見 [工作室管理](STUDIO_TOOLS.md)，H3 安裝見 [H3 說明](H3.md)。模型與執行檔不提交至本 repo。

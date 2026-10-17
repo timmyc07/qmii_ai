@@ -19,7 +19,7 @@
       <div class="flower" aria-hidden="true">✿</div>
       <p class="eyebrow">YOUR PRIVATE CREATIVE SPACE</p>
       <h1>把靈感，交給千迷AI</h1>
-      <p>連上你的電腦，隨時隨地創作圖片。</p>
+      <p>連上你的電腦，隨時隨地創作圖片與影片。</p>
       <form id="login-form">
         <label for="code">私人連線碼</label>
         <input id="code" name="code" type="password" autocomplete="current-password" required maxlength="128" placeholder="輸入電腦上顯示的連線碼">
@@ -41,13 +41,14 @@
       <h2>我的魔法按鈕</h2><div id="presets" class="presets"></div>
       <button id="new-preset" type="button" class="quiet">＋ 新增按鈕</button>
       <label class="toggle-setting"><input id="image-refmod" type="checkbox" disabled>RefMod 身分參考（不相容）</label>
-      <p class="note">此頁使用 Qwen 圖片模型；RefMod 僅支援 MiniMax H3，請在桌面影片模式使用。</p>
+      <p id="refmod-note" class="note">圖片模式不支援 RefMod；切換 H3 後可在生成參數中啟用。</p>
       <details id="parameter-panel"><summary>生成參數</summary><p class="note">留白使用所選工作流配方。</p><div id="generation-parameters" class="parameter-grid"></div><button id="reset-parameters" class="quiet" type="button">還原配方</button></details><h2>精準模式</h2>
       <label class="toggle-setting" for="precise-mode"><input id="precise-mode" type="checkbox"> 保留提示詞原文，僅附加適用的生成規範</label>
       <p class="note">啟用後會先用指定模板整理提示詞，再交給所選生成工作流。</p>
       <div class="setting-actions"><button id="save-settings" type="button" class="primary">儲存共用設定</button><button id="reload-settings" type="button" class="quiet">重新載入</button></div>
       <p id="settings-status" class="note" role="status">所有已配對設備共用</p>
       <button id="show-library" type="button" class="quiet">▧ 開啟作品庫</button>
+      <button id="show-recipes" type="button" class="quiet">▤ 生成配方</button>
     </aside>
     <section id="library" class="library hidden" aria-label="共用作品庫"><h2>作品庫</h2><p>包含既有桌面作品及所有設備生成的圖片。</p><button id="close-library" class="quiet" type="button">返回創作</button><div id="artworks" class="artworks"></div><button id="more-artworks" class="quiet" type="button">載入更多</button></section>
     <section id="feed" class="feed" aria-label="創作紀錄" aria-live="polite">
@@ -55,6 +56,7 @@
     </section>
     <form id="composer" class="composer">
       <div id="tray" class="tray" aria-label="待處理圖片"></div>
+      <div id="last-frame-controls" class="hidden"><label for="last-file">自選尾幀（共用於本批影片）</label><input id="last-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><div id="last-frame-preview" class="tray"></div></div>
       <label for="prompt" class="prompt-label">正向提示詞</label>
       <textarea id="prompt" rows="2" maxlength="8000" placeholder="描述希望生成的內容…"></textarea>
       <label for="negative-prompt" class="prompt-label">負面提示詞</label>
@@ -62,7 +64,7 @@
       <div class="composer-tools">
         <label class="upload">＋ 圖片<input id="files" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple></label>
         <label class="sr-only" for="workflow">工作流</label>
-        <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option><option value="superduper">SuperDuper 群組</option><option value="nsfw_adv">NSFW Adv 群組</option></select>
+        <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option><option value="superduper">SuperDuper 群組</option><option value="nsfw_adv">NSFW Adv 群組</option><option value="h3_image">H3 圖片生影片</option></select>
         <button id="send" class="primary" type="submit">送出 ↑</button>
         <button id="cancel-generation" class="quiet hidden" type="button">■ 強制終止</button>
       </div>
@@ -71,6 +73,7 @@
   </main>
   <dialog id="preset-editor"><form id="preset-form"><h2>常用提示詞按鈕</h2><label for="preset-name">名稱</label><input id="preset-name" required maxlength="100"><label for="preset-prompt">正向提示詞</label><textarea id="preset-prompt" required rows="5" maxlength="8000"></textarea><label for="preset-negative">負面提示詞</label><textarea id="preset-negative" rows="3" maxlength="4000" placeholder="描述不希望出現的內容，可留白…"></textarea><div class="setting-actions"><button type="submit" class="primary">儲存按鈕</button><button id="delete-preset" type="button" class="quiet">刪除</button><button id="cancel-preset" type="button" class="quiet">取消</button></div></form></dialog>
   <dialog id="preview"><button id="close-preview" class="quiet" type="button">關閉預覽</button><img id="preview-image" alt="作品預覽"><a id="preview-download">↓ 下載作品</a></dialog>
+  <dialog id="recipe-editor"><h2>生成配方</h2><p>套用提示詞、模式與參數後再送出；圖片與尾幀需重新選擇。</p><label for="recipe-name">配方名稱</label><input id="recipe-name" maxlength="100" placeholder="為目前設定命名"><div class="setting-actions"><button id="save-recipe" class="primary" type="button">儲存目前設定</button><button id="close-recipes" class="quiet" type="button">關閉</button></div><div id="recipe-list"></div></dialog>
   <div id="toast" role="status" class="toast hidden"></div>
   <script src="/static/mobile.js" defer></script>
 </body>

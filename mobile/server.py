@@ -27,6 +27,8 @@ from .settings import Settings, SettingsStore, source_revision
 from .parameters import Parameters, validate_parameters, validate_h3_sources, validate_svi_sources
 from .cancellation import CancellationFailed, TaskControl
 from .drive import Drive, DriveSettings
+from .maintenance import CleanupInput, Maintenance, health, workflow_check
+from .recipes import RecipeInput, Recipes
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -224,6 +226,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     store = Store(state_dir or ROOT / '.runtime' / 'mobile', output_dir or ROOT / 'output')
     drive = Drive(store.state, store.output)
     settings = SettingsStore(settings_path)
+    maintenance = Maintenance(store)
+    recipes = Recipes(store.state / 'recipes.json')
     library = Path(library_dir or (ROOT / 'output' if output_dir is None else output_dir)).resolve()
 
     def artworks():
@@ -408,6 +412,50 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         store.session(request)
         return drive.status()
 
+    @app.get('/api/health')
+    def workflow_health(request: Request):
+        store.session(request)
+        return health()
+
+    @app.get('/api/storage')
+    def storage_status(request: Request):
+        store.session(request)
+        return maintenance.storage()
+
+    @app.post('/api/storage/preview')
+    async def preview_cleanup(request: Request):
+        store.session(request, mutate=True)
+        value = await parse_json(request, CleanupInput)
+        return maintenance.preview(value.days)
+
+    @app.post('/api/storage/cleanup')
+    async def cleanup_storage(request: Request):
+        store.session(request, mutate=True)
+        value = await parse_json(request, CleanupInput)
+        try:
+            return maintenance.cleanup(value.token)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @app.get('/api/recipes')
+    def read_recipes(request: Request):
+        store.session(request)
+        return dict(recipes=recipes.read())
+
+    @app.post('/api/recipes')
+    async def save_recipe(request: Request):
+        store.session(request, mutate=True)
+        value = await parse_json(request, RecipeInput, 160_000)
+        try:
+            return recipes.change(recipe=value)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @app.delete('/api/recipes/{recipe_id}')
+    def delete_recipe(recipe_id: str, request: Request):
+        store.session(request, mutate=True)
+        return recipes.change(recipe_id=identifier(recipe_id))
+
     @app.put('/api/drive')
     async def save_drive(request: Request):
         store.session(request, mutate=True)
@@ -513,6 +561,10 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             previous = db.execute('SELECT * FROM jobs WHERE request_id=?', (value.request_id,)).fetchone()
             if previous:
                 return store.public_job(previous)
+            if runner is None:
+                check = workflow_check(value.workflow, parameters, bool(value.images))
+                if not check['ready']:
+                    raise HTTPException(409, '此工作流尚未就緒：' + '、'.join(check['missing']) + '。' + check['repair'])
             count = db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','cancelling')").fetchone()[0]
             if count >= 8:
                 raise HTTPException(429, '電腦目前排隊已滿，請稍後再試。')

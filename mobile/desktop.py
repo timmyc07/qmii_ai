@@ -56,7 +56,7 @@ class StudioClient:
                                          headers={'Origin': URL, 'X-Qianmi-CSRF': self.csrf,
                                                   'Content-Type': 'application/octet-stream' if raw is not None else 'application/json'})
         try:
-            with self.opener.open(request, timeout=15) as response:
+            with self.opener.open(request, timeout=120 if path == '/api/storage' else 15) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             try:
@@ -100,7 +100,7 @@ def main():
     if action == 'load_settings':
         emit(SettingsStore().read())
         return
-    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel', 'import_svi_lora', 'connect_drive', 'save_drive') else {}
+    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel', 'import_svi_lora', 'connect_drive', 'save_drive', 'studio_tools') else {}
     if action == 'save_settings':
         emit(SettingsStore().save(payload))
         return
@@ -115,6 +115,16 @@ def main():
     client = StudioClient()
     client.connect()
     try:
+        if action == 'studio_tools':
+            routes = {'health': ('GET', '/api/health'), 'storage': ('GET', '/api/storage'),
+                      'preview': ('POST', '/api/storage/preview'), 'cleanup': ('POST', '/api/storage/cleanup'),
+                      'recipes': ('GET', '/api/recipes'), 'save_recipe': ('POST', '/api/recipes'),
+                      'delete_recipe': ('DELETE', '/api/recipes/' + payload.get('value', {}).get('id', ''))}
+            if payload['action'] not in routes:
+                raise ValueError('不支援的工作室管理操作。')
+            method, path = routes[payload['action']]
+            emit(client.request(path, payload.get('value', {}) if method == 'POST' else None, method=method))
+            return
         if action in ('drive_status', 'save_drive'):
             emit(client.request('/api/drive', payload if action == 'save_drive' else None,
                                 method='PUT' if action == 'save_drive' else 'GET'))

@@ -147,6 +147,36 @@ async fn studio_jobs() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn studio_tools(
+    action: String,
+    value: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if ![
+        "health",
+        "storage",
+        "preview",
+        "cleanup",
+        "recipes",
+        "save_recipe",
+        "delete_recipe",
+    ]
+    .contains(&action.as_str())
+    {
+        return Err("不支援的工作室管理操作。".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        serde_json::from_str(&bridge(
+            "studio_tools",
+            serde_json::json!({"action": action, "value": value}),
+            None,
+        )?)
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn import_svi_lora(path: String) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         serde_json::from_str(&bridge(
@@ -282,6 +312,7 @@ fn main() {
             generate_images,
             cancel_generation,
             studio_jobs,
+            studio_tools,
             import_svi_lora,
             window_minimize,
             window_toggle_maximize,

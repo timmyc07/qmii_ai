@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let csrf = '', selected = [], timer, installPrompt, submitting = false;
+let csrf = '', selected = [], selectedLast = null, timer, installPrompt, submitting = false;
 const cards = new Map();
 let currentJobId = null, cancelling = false;
 $('cancel-generation').onclick = async () => {
@@ -38,6 +38,14 @@ function jobTime(value) { return value ? new Date(value * 1000).toLocaleString('
 function parameterKey() { return $('workflow').value; }
 function currentParameters() { return Object.fromEntries(Object.entries(settings.generation?.[parameterKey()] || {}).filter(([, value]) => value !== null)); }
 function renderParameters() {
+  const video = parameterKey() === 'h3_image';
+  $('negative-prompt').classList.toggle('hidden', video);
+  $('negative-prompt').previousElementSibling.classList.toggle('hidden', video);
+  $('precise-mode').disabled = video;
+  $('last-frame-controls').classList.toggle('hidden', !video || currentParameters().end_frame !== 'custom');
+  $('image-refmod').parentElement.classList.toggle('hidden', video);
+  $('refmod-note').classList.toggle('hidden', video);
+  if (video) { renderVideoParameters(); return; }
   const superduper = parameterKey() === 'superduper';
   const nsfwAdv = parameterKey() === 'nsfw_adv';
   const fields = [
@@ -70,6 +78,51 @@ function renderParameters() {
   }
   $('negative-prompt').value = currentParameters().negative || '';
   $('files').disabled = submitting;
+}
+
+function renderVideoParameters() {
+  const values = currentParameters(), profile = values.video_profile || 'turbo4';
+  const fields = [
+    ['video_profile', '影片配方', ['turbo4', 'turbo8', 'base'], 'turbo4', ['Turbo 4 步', 'Turbo 8 步', '原版（至少 20 步）']],
+    ['width', '寬度（短邊最多 768）', [256, 1344, 32], 512],
+    ['height', '高度（短邊最多 768）', [256, 1344, 32], 896],
+    ['duration', '秒數（按模型幀數規則調整）', [1, 15, .1], 12],
+    ['seed', '種子（留白隨機）', [0, 9007199254740991, 1], ''],
+    ['sampler', '採樣器', ['euler', 'res_multistep'], 'euler'],
+    ['shift_video', '影片 Shift', [.01, 100, .01], profile === 'turbo4' ? 6 : 12],
+    ['shift_audio', '音訊 Shift', [.01, 100, .01], 3],
+    ['video_crf', '影片壓縮 CRF（越低檔案越大）', [0, 51, 1], 18],
+    ['end_frame', '尾幀約束', ['none', 'first', 'custom'], 'none', ['不使用', '各自以首幀作尾幀', '共用自選尾幀']],
+    ['resize_method', '縮放方式', ['lanczos', 'bicubic', 'bilinear', 'area', 'nearest-exact'], 'lanczos'],
+    ['crop', '裁切', ['center', 'disabled'], 'center', ['置中裁切', '不裁切']],
+    ['video_audio', '輸出聲音', 'boolean', true], ['identity_prompt', '加入主體保留描述', 'boolean', false],
+    ['refmod', 'RefMod 身分參考（需安裝）', 'boolean', false]
+  ];
+  fields.splice(4, 0, profile === 'base' ? ['steps', '步數', [20, 60, 1], 20] : ['lora_strength', 'Turbo LoRA 強度', [0, 2, .05], 1]);
+  $('generation-parameters').replaceChildren();
+  for (const [key, title, options, fallback, labels] of fields) {
+    const label = document.createElement('label'); label.textContent = title;
+    const select = Array.isArray(options) && typeof options[0] === 'string';
+    const input = document.createElement(select ? 'select' : 'input'); input.dataset.parameter = key;
+    if (select) options.forEach((value, i) => input.add(new Option(labels?.[i] || value, value)));
+    else if (options === 'boolean') { input.type = 'checkbox'; input.checked = values[key] ?? fallback; }
+    else { input.type = 'number'; [input.min, input.max, input.step] = options; }
+    if (options !== 'boolean') input.value = values[key] ?? fallback;
+    input.onchange = () => {
+      if (!input.reportValidity()) return;
+      const next = currentParameters();
+      if (key === 'seed' && input.value === '') delete next[key];
+      else next[key] = options === 'boolean' ? input.checked : select ? input.value : Number(input.value);
+      if (key === 'video_profile') {
+        next.steps = { turbo4: 4, turbo8: 8, base: 20 }[input.value]; next.shift_video = input.value === 'turbo4' ? 6 : 12;
+        if (input.value === 'base') delete next.lora_strength; else next.lora_strength = 1;
+      }
+      settings.generation ||= {}; settings.generation.h3_image = next; dirty = true;
+      $('settings-status').textContent = '影片參數尚未儲存。';
+      if (['video_profile', 'end_frame'].includes(key)) renderParameters();
+    };
+    label.append(input); $('generation-parameters').append(label);
+  }
 }
 $('negative-prompt').oninput = () => {
   settings.generation ||= {};
@@ -162,6 +215,8 @@ function showLogin() {
   csrf = ''; clearTimeout(timer); cards.clear();
   document.querySelectorAll('.job').forEach(node => node.remove());
   selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
+  clearLastFrame(); $('recipe-editor').close();
+  recipeSource = null; $('recipe-list').replaceChildren();
   $('studio').classList.add('hidden'); $('logout').classList.add('hidden'); $('login-view').classList.remove('hidden');
   $('precise-mode').checked = false; $('prompt').value = ''; $('negative-prompt').value = ''; $('presets').replaceChildren(); $('artworks').replaceChildren();
   $('preset-editor').close(); $('preview').close(); $('preview-image').removeAttribute('src');
@@ -184,15 +239,22 @@ function renderJob(job) {
     const user = document.createElement('div'); user.className = 'user-message';
     if (job.sources.length) {
       for (const url of job.sources) { const img = document.createElement('img'); img.src = url; img.alt = '已送出的圖片'; user.append(img); }
-      if (job.prompt) {
+      if (job.last_image) { const img = document.createElement('img'); img.src = job.last_image; img.alt = '共用尾幀'; user.append(img); }
+      if (job.prompt && job.workflow !== 'h3_image') {
         const prompt = document.createElement('div'); prompt.textContent = '正向提示詞：\n' + job.prompt; user.prepend(prompt);
       }
     } else user.textContent = '正向提示詞：\n' + job.prompt;
     if (job.workflow !== 'h3_image') { const negativeText = document.createElement('div'); negativeText.textContent = '負面提示詞：\n' + (negative || '未填寫'); user.append(negativeText); }
-    if (Object.keys(parameters).length) { const params = document.createElement('p'); params.className = 'note'; params.textContent = '參數：' + JSON.stringify(parameters); user.append(params); }
+    if (job.workflow === 'h3_image') {
+      const details = document.createElement('details'), summary = document.createElement('summary'), text = document.createElement('p');
+      summary.textContent = '完整提示詞與參數'; text.textContent = job.prompt + '\n參數：' + JSON.stringify(parameters);
+      details.append(summary, text); user.append(details);
+    } else if (Object.keys(parameters).length) { const params = document.createElement('p'); params.className = 'note'; params.textContent = '參數：' + JSON.stringify(parameters); user.append(params); }
     const status = document.createElement('div'); status.className = 'job-status'; status.setAttribute('role', 'status');
     const metadata = document.createElement('div'); metadata.className = 'job-metadata';
     card.append(user, metadata, status); cards.set(job.id, card); $('feed').append(card);
+    const save = document.createElement('button'); save.type = 'button'; save.className = 'quiet'; save.textContent = '儲存為配方';
+    save.onclick = () => openRecipes(job); card.append(save);
   }
   const origin = job.origin || {};
   card.querySelector('.job-metadata').textContent = `提交：${jobTime(job.created)}
@@ -208,6 +270,10 @@ function renderJob(job) {
     $('cancel-generation').classList.toggle('hidden', !active);
     if (!active) { currentJobId = null; cancelling = false; }
   }
+  if ((card.resultFiles || []).some((name, index) => name !== job.result_files[index])) {
+    card.querySelectorAll('[data-result]').forEach(node => node.remove());
+  }
+  card.resultFiles = [...job.result_files];
   job.results.forEach((url, index) => {
     if (card.querySelector(`[data-result="${index}"]`)) return;
     const figure = document.createElement('figure'); figure.className = 'result'; figure.dataset.result = index;
@@ -266,6 +332,20 @@ $('files').onchange = event => {
   event.target.value = ''; renderTray();
 };
 
+function clearLastFrame() {
+  if (selectedLast) URL.revokeObjectURL(selectedLast.url);
+  selectedLast = null; $('last-file').value = ''; $('last-frame-preview').replaceChildren();
+}
+$('last-file').onchange = event => {
+  const file = event.target.files[0];
+  if (submitting || !file) return;
+  if (file.size > 12 * 1024 * 1024) { event.target.value = ''; toast('尾幀不可超過 12 MB。'); return; }
+  clearLastFrame(); selectedLast = { file, url: URL.createObjectURL(file) };
+  const image = document.createElement('img'); image.src = selectedLast.url; image.alt = '共用尾幀'; image.width = 80;
+  const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '移除尾幀'; remove.onclick = () => { if (!submitting) clearLastFrame(); };
+  $('last-frame-preview').append(image, remove);
+};
+
 $('login-form').onsubmit = async event => {
   event.preventDefault(); $('login-button').disabled = true; $('login-error').textContent = '';
   try { await jsonPost('/api/login', { code: $('code').value }); await studio(await api('/api/session')); }
@@ -278,24 +358,69 @@ $('composer').onsubmit = async event => {
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
   const prompt = $('prompt').value;
   if (!$('negative-prompt').reportValidity()) return;
-  const parameters = { ...currentParameters(), negative: $('negative-prompt').value };
+  const video = parameterKey() === 'h3_image';
+  const parameters = { ...currentParameters() };
+  if (!video) parameters.negative = $('negative-prompt').value;
   if (!prompt.trim() || prompt.length > 8000) { toast('請輸入提示詞，合計最多 8000 字。'); return; }
   if ($('workflow').value === 'reference' && selected.length < 2) { toast('多圖參考至少需要 2 張參考圖片。'); return; }
+  if (video && !selected.length) { toast('請選擇 1 至 4 張首幀，每張各自生成一支影片。'); return; }
+  if (video && parameters.end_frame === 'custom' && !selectedLast) { toast('請選擇共用尾幀圖片。'); return; }
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
+  $('workflow').disabled = true; $('last-file').disabled = true;
   try {
     for (const value of selected) {
       if (!value.id) value.id = (await api('/api/uploads', { method: 'POST', headers: { 'Content-Type': value.file.type || 'application/octet-stream' }, body: value.file })).id;
     }
     // Retain the request ID after an uncertain response so retry cannot duplicate a GPU task.
-    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), parameters, $('precise-mode').checked]);
+    let lastImage = null;
+    if (video && parameters.end_frame === 'custom') {
+      if (!selectedLast.id) selectedLast.id = (await api('/api/uploads', { method: 'POST', body: selectedLast.file })).id;
+      lastImage = selectedLast.id;
+    }
+    const preciseMode = !video && $('precise-mode').checked;
+    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), lastImage, parameters, preciseMode]);
     if ($('composer').pendingSignature !== signature) { $('composer').pendingSignature = signature; $('composer').pendingId = crypto.randomUUID().replaceAll('-', ''); }
-    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), precise_mode: $('precise-mode').checked, request_id: $('composer').pendingId, origin: jobOrigin(), parameters });
+    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), last_image: lastImage, precise_mode: preciseMode, request_id: $('composer').pendingId, origin: jobOrigin(), parameters });
     currentJobId = job.id; cancelling = false; $('cancel-generation').disabled = false; $('cancel-generation').textContent = '■ 強制終止';
     renderJob(job); $('welcome').classList.add('hidden'); $('prompt').value = '';
     $('composer').pendingSignature = ''; selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
+    clearLastFrame();
     toast('已交給你的電腦處理。'); await refresh();
   } catch (error) { toast(error.message); }
-  finally { submitting = false; $('send').disabled = false; renderParameters(); $('send').textContent = '送出 ↑'; }
+  finally { submitting = false; $('send').disabled = false; $('workflow').disabled = false; $('files').disabled = false; $('last-file').disabled = false; renderParameters(); $('send').textContent = '送出 ↑'; }
+};
+
+let recipeSource = null;
+async function openRecipes(job = null) {
+  recipeSource = job; $('recipe-name').value = ''; $('recipe-editor').showModal();
+  try { renderRecipes((await api('/api/recipes')).recipes); } catch (error) { toast(error.message); }
+}
+function renderRecipes(recipes) {
+  $('recipe-list').replaceChildren();
+  for (const recipe of recipes) {
+    const row = document.createElement('div'); row.className = 'setting-actions';
+    const apply = document.createElement('button'); apply.type = 'button'; apply.className = 'quiet'; apply.textContent = recipe.name;
+    apply.disabled = ![...$('workflow').options].some(option => option.value === recipe.workflow);
+    if (apply.disabled) apply.title = '此配方的模式目前由桌面操作';
+    apply.onclick = () => {
+      $('workflow').value = recipe.workflow; settings.generation ||= {}; settings.generation[recipe.workflow] = recipe.parameters;
+      $('precise-mode').checked = recipe.precise_mode; $('prompt').value = recipe.prompt;
+      selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; clearLastFrame(); renderTray(); dirty = true;
+      $('recipe-editor').close(); toast('已套用配方；請重新選擇圖片與尾幀後送出。');
+    };
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'quiet'; remove.textContent = '刪除';
+    remove.onclick = async () => { try { renderRecipes((await api('/api/recipes/' + recipe.id, { method: 'DELETE' })).recipes); } catch (error) { toast(error.message); } };
+    row.append(apply, remove); $('recipe-list').append(row);
+  }
+}
+$('show-recipes').onclick = () => openRecipes();
+$('close-recipes').onclick = () => $('recipe-editor').close();
+$('save-recipe').onclick = async () => {
+  const video = parameterKey() === 'h3_image';
+  const value = recipeSource ? { workflow: recipeSource.workflow, prompt: recipeSource.prompt, parameters: recipeSource.parameters, precise_mode: recipeSource.precise_mode } :
+    { workflow: parameterKey(), prompt: $('prompt').value, parameters: video ? currentParameters() : { ...currentParameters(), negative: $('negative-prompt').value }, precise_mode: !video && $('precise-mode').checked };
+  try { renderRecipes((await jsonPost('/api/recipes', { ...value, name: $('recipe-name').value.trim() })).recipes); toast('已儲存配方。'); }
+  catch (error) { toast(error.message); }
 };
 
 $('logout').onclick = async () => { try { await api('/api/logout', { method: 'POST' }); showLogin(); } catch (error) { toast(error.message); } };

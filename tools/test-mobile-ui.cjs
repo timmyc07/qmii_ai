@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
       response.setHeader('Content-Type', 'image/svg+xml');
       response.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="240"><rect width="160" height="240" fill="#dbcdf4"/><circle cx="110" cy="65" r="25" fill="#fff0c5"/><path d="M0 180L55 100L160 230V240H0" fill="#a59bc9"/></svg>'); return;
     }
-    const file = { '/': 'index.html', '/app.js': 'app.js', '/styles.css': 'styles.css' }[request.url];
+    const file = { '/': 'index.html', '/app.js': 'app.js', '/studio.js': 'studio.js', '/styles.css': 'styles.css' }[request.url];
     if (!file) { response.writeHead(404).end(); return; }
     response.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8');
     response.end(fs.readFileSync(path.join(source, file)));
@@ -37,6 +37,17 @@ const { chromium } = require('playwright');
             if (name === 'load_settings') return structuredClone(settings);
             if (name === 'save_settings') { settings = structuredClone({ ...args.settings, revision: 'saved' }); return structuredClone(settings); }
             if (name === 'generate_images') { test.generation = args; return; }
+            if (name === 'studio_tools') {
+              test.toolsCalls ||= []; test.toolsCalls.push(args);
+              test.recipes ||= [];
+              if (args.action === 'health') return { note: '健檢完成', workflows: [{ workflow: 'h3_image', name: 'H3', ready: false, missing: ['缺少 <模型>'], missing_nodes: [], repair: '安裝指令' }], runtimes: {} };
+              if (args.action === 'storage') return { free_bytes: 1024 ** 3, items: [{ name: '作品', bytes: 20, available: true }], note: '掃描完成' };
+              if (args.action === 'preview') return { token: 'fixture-preview', count: 1, bytes: 20, files: ['2026-01-01/fixture.png'] };
+              if (args.action === 'cleanup') return { count: 1, bytes: 20, failed: [] };
+              if (args.action === 'save_recipe') test.recipes.push({ id: 'a'.repeat(32), ...args.value });
+              if (args.action === 'delete_recipe') test.recipes = test.recipes.filter(item => item.id !== args.value.id);
+              return { recipes: structuredClone(test.recipes) };
+            }
             if (name === 'google_drive') {
               if (args.action === 'save') test.drive = args.value;
               if (args.action === 'connect') { test.oauthPath = args.value.path; return { connected: true, message: '授權完成' }; }
@@ -66,6 +77,29 @@ const { chromium } = require('playwright');
       };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.click('#studio-maintenance');
+    await page.waitForFunction(() => document.querySelector('#workflow-health').textContent.includes('缺少 <模型>'));
+    await page.screenshot({ path: path.join(__dirname, '../.runtime/studio-maintenance.png'), fullPage: true, animations: 'disabled' });
+    assert.equal(await page.locator('#workflow-health 模型').count(), 0);
+    await page.click('#storage-scan');
+    await page.waitForFunction(() => document.querySelector('#storage-usage').textContent.includes('掃描完成'));
+    await page.click('#cleanup-preview');
+    await page.waitForSelector('#cleanup-confirm:not(.hidden)');
+    await page.fill('#cleanup-days', '60');
+    assert.equal(await page.locator('#cleanup-confirm').isVisible(), false);
+    await page.click('#cleanup-preview'); await page.click('#cleanup-confirm');
+    await page.waitForFunction(() => document.querySelector('#cleanup-summary').textContent.includes('已刪除 1'));
+    assert.equal(await page.evaluate(() => window.testMobile.toolsCalls.find(call => call.action === 'cleanup').value.token), 'fixture-preview');
+    await page.keyboard.press('Escape');
+    await page.fill('#prompt', '配方中的提示詞');
+    await page.fill('#negative-prompt', '配方負面');
+    await page.click('#generation-recipes');
+    await page.fill('#recipe-name', '重用 <設定>'); await page.click('#recipe-save');
+    await page.waitForSelector('[data-recipe-apply]');
+    await page.keyboard.press('Escape'); await page.fill('#prompt', '其他內容');
+    await page.click('#generation-recipes'); await page.click('[data-recipe-apply]');
+    assert.equal(await page.locator('#prompt').inputValue(), '配方中的提示詞');
+    assert.equal(await page.locator('#negative-prompt').inputValue(), '配方負面');
     await page.click('#mobile-connection');
     await page.waitForFunction(() => !document.querySelector('#mobile-start').disabled);
     await page.keyboard.press('Escape');

@@ -9,6 +9,7 @@ const { chromium } = require('playwright');
   const submissions = [];
   const jobs = [];
   const cancelled = [];
+  let recipes = [], uploads = 0;
   let settings = { presets: [], preciseMode: false, generation: {}, revision: '' };
   const server = http.createServer((request, response) => {
     const reply = value => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(value)); };
@@ -24,7 +25,14 @@ const { chromium } = require('playwright');
       }
       return reply(settings);
     }
-    if (request.url === '/api/uploads' && request.method === 'POST') return reply({ id: 'a'.repeat(32), url: '/a.png' });
+    if (request.url === '/api/uploads' && request.method === 'POST') return reply({ id: (++uploads).toString(16).padStart(32, '0'), url: '/a.png' });
+    if (request.url === '/api/recipes') {
+      if (request.method === 'POST') {
+        let body = ''; request.on('data', value => body += value); request.on('end', () => { recipes.push({ id: 'c'.repeat(32), ...JSON.parse(body) }); reply({ recipes }); }); return;
+      }
+      return reply({ recipes });
+    }
+    if (request.url.startsWith('/api/recipes/') && request.method === 'DELETE') { recipes = recipes.filter(item => item.id !== request.url.split('/').pop()); return reply({ recipes }); }
     if (request.url === '/api/jobs' && request.method === 'POST') {
       let body = ''; request.on('data', value => body += value); request.on('end', () => {
         const value = JSON.parse(body); submissions.push(value);
@@ -47,7 +55,7 @@ const { chromium } = require('playwright');
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
-    assert.equal(await page.locator('#workflow option').count(), 4);
+    assert.equal(await page.locator('#workflow option').count(), 5);
     assert.equal(await page.locator('#image-refmod').isDisabled(), true);
     assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 5);
     assert.match(await page.locator('#generation-parameters').textContent(), /調高.*調低/s);
@@ -102,6 +110,41 @@ const { chromium } = require('playwright');
     await page.click('#cancel-generation');
     await page.waitForSelector('#cancel-generation', { state: 'hidden' });
     assert.equal(cancelled.at(-1), lastId);
+    await page.selectOption('#workflow', 'h3_image');
+    assert.equal(await page.locator('#negative-prompt').isVisible(), false);
+    assert.equal(await page.locator('#precise-mode').isDisabled(), true);
+    await page.locator('#parameter-panel summary').click();
+    await page.selectOption('[data-parameter="video_profile"]', 'turbo8');
+    await page.selectOption('[data-parameter="end_frame"]', 'custom');
+    for (const width of [390, 360]) {
+      await page.setViewportSize({ width, height: 820 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    }
+    await page.screenshot({ path: path.join(__dirname, '../.runtime/mobile-h3.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.locator('#files').setInputFiles(Array.from({ length: 4 }, (_, i) => ({ name: `first${i}.png`, mimeType: 'image/png', buffer: Buffer.from(`first${i}`) })));
+    await page.locator('#last-file').setInputFiles({ name: 'end.png', mimeType: 'image/png', buffer: Buffer.from('last frame') });
+    await page.fill('#prompt', '轉頭並微笑');
+    await page.click('#show-recipes'); await page.fill('#recipe-name', '有聲批次'); await page.click('#save-recipe');
+    await page.waitForFunction(() => document.querySelector('#recipe-list').textContent.includes('有聲批次'));
+    await page.click('#close-recipes');
+    await page.click('#send'); await page.waitForFunction(() => !document.querySelector('#send').disabled);
+    assert.equal(submissions.at(-1).workflow, 'h3_image');
+    assert.equal(submissions.at(-1).images.length, 4);
+    assert.ok(submissions.at(-1).last_image);
+    assert.equal(submissions.at(-1).parameters.steps, 8);
+    assert.equal(submissions.at(-1).parameters.video_profile, 'turbo8');
+    assert.equal(submissions.at(-1).parameters.end_frame, 'custom');
+    assert.equal('negative' in submissions.at(-1).parameters, false);
+    assert.equal(submissions.at(-1).precise_mode, false);
+    await page.selectOption('#workflow', 'quick');
+    await page.click('#show-recipes'); await page.locator('#recipe-list button').first().click();
+    assert.equal(await page.locator('#workflow').inputValue(), 'h3_image');
+    assert.equal(await page.locator('#prompt').inputValue(), '轉頭並微笑');
+    assert.equal(await page.locator('#tray img').count(), 0);
+    await page.click('#show-recipes'); await page.locator('#recipe-list button').nth(1).click();
+    await page.waitForFunction(() => document.querySelector('#recipe-list').childElementCount === 0);
+    await page.click('#close-recipes'); await page.selectOption('#workflow', 'quick');
     for (const width of [1280, 390, 360]) {
       await page.setViewportSize({ width, height: 820 }); await page.waitForTimeout(350);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
