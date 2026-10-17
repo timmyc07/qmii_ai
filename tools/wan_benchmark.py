@@ -53,4 +53,4 @@ def run(parameters, prompt, seed, output, progress, source=None):
         value = graph(parameters, prompt, seed, image)
         ensure_server({node['class_type'] for node in value.values()})
         progress('正在生成 Wan 無聲影片…')
-        return execute_video(value, output, 'Wan')
+        return execute_video(value, output / '0.mp4', 'Wan')

@@ -1,7 +1,10 @@
 from contextlib import nullcontext
 import io
+import json
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -12,7 +15,7 @@ from mobile import h3
 from mobile.generation import generate
 from mobile.parameters import validate_parameters
 from mobile.settings import Settings
-from mobile.server import create_app
+from mobile.server import Store, create_app
 
 
 class H3Test(unittest.TestCase):
@@ -34,14 +37,20 @@ class H3Test(unittest.TestCase):
                 image = client.post('/api/uploads', content=png.getvalue(), headers=headers).json()['id']
                 job = dict(prompt='cat turns its head', workflow='h3_image', images=[image], request_id='a' * 32,
                            parameters=dict(duration=6, seed=42))
-                for invalid in ({**job, 'images': []}, {**job, 'images': [image, image]},
+                for invalid in ({**job, 'images': []}, {**job, 'images': [image] * 5},
                                 {**job, 'parameters': {'duration': 16}}, {**job, 'workflow': 'h3_text'},
-                                {**job, 'parameters': {'end_frame': 'custom'}}):
+                                {**job, 'parameters': {'end_frame': 'custom'}},
+                                {**job, 'last_image': image},
+                                {**job, 'workflow': 'quick', 'last_image': image},
+                                {**job, 'last_image': 'f' * 32, 'parameters': {'end_frame': 'custom'}},
+                                {**job, 'last_image': '../invalid', 'parameters': {'end_frame': 'custom'}}):
                     self.assertEqual(client.post('/api/jobs', json=invalid, headers=headers).status_code, 422)
-                tail = client.post('/api/jobs', json={**job, 'images': [image, image], 'request_id': 'b' * 32,
+                tail = client.post('/api/jobs', json={**job, 'images': [image] * 4, 'last_image': image, 'request_id': 'b' * 32,
                     'parameters': dict(video_profile='turbo8', steps=8, end_frame='custom', video_audio=False)}, headers=headers)
                 self.assertEqual(tail.status_code, 200)
                 self.assertEqual(tail.json()['parameters']['end_frame'], 'custom')
+                self.assertEqual(len(tail.json()['sources']), 4)
+                self.assertEqual(tail.json()['last_image'], '/api/uploads/' + image)
                 result = client.post('/api/jobs', json=job, headers=headers).json()
                 for _ in range(100):
                     result = client.get('/api/jobs/' + result['id']).json()
@@ -122,17 +131,47 @@ class H3Test(unittest.TestCase):
         stored = Settings.model_validate({'generation': {'h3_image': parameters}}).model_dump(exclude_none=True)
         self.assertEqual(stored['generation']['h3_image'], parameters)
 
-    def test_custom_end_frame_source_validation_and_routing(self):
+    def test_batch_sources_tail_modes_seeds_and_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            payload = dict(prompt='cat blinks', workflow='h3_image', parameters=dict(end_frame='custom'))
-            with patch('mobile.generation.gpu_lock', return_value=nullcontext()), patch('mobile.h3.run', return_value=['0.mp4']) as runner:
-                generate(payload, [root / 'first.png', root / 'last.png'], root, Mock())
-                self.assertEqual(runner.call_args.args[-2:], (root / 'first.png', root / 'last.png'))
-                with self.assertRaises(ValueError):
-                    generate(payload, [root / 'first.png'], root, Mock())
+            for count in (1, 4):
+                for mode in ('none', 'first', 'custom'):
+                    with self.subTest(count=count, mode=mode):
+                        sources = [root / f'first{i}.png' for i in range(count)]
+                        tail = root / 'last.png' if mode == 'custom' else None
+                        parameters = dict(end_frame=mode, seed=42, duration=6)
+                        payload = dict(prompt='cat blinks', workflow='h3_image', parameters=parameters, last_image=tail)
+                        progress = Mock()
+                        graphs = []
 
-    def test_routes_exactly_one_image_and_retains_mp4(self):
+                        def run(params, prompt, seed, output, report, source, last):
+                            self.assertEqual(params, parameters)
+                            self.assertEqual(prompt, payload['prompt'])
+                            self.assertEqual(last, tail)
+                            graphs.append(h3.graph(params, prompt, seed, str(source), str(last) if last else None))
+                            output.write_bytes(source.name.encode())
+                            report('正在將首幀生成影片…')
+                            return [output.name]
+
+                        with patch('mobile.generation.gpu_lock', return_value=nullcontext()) as lock, patch('mobile.h3.run', side_effect=run):
+                            names = generate(payload, sources, root, progress)
+                        lock.assert_called_once()
+                        self.assertEqual(names, [f'{i}.mp4' for i in range(count)])
+                        self.assertEqual([(root / name).read_bytes() for name in names], [source.name.encode() for source in sources])
+                        self.assertEqual([graph['noise']['inputs']['noise_seed'] for graph in graphs], list(range(42, 42 + count)))
+                        self.assertEqual([graph['first']['inputs']['image'] for graph in graphs], list(map(str, sources)))
+                        for graph in graphs:
+                            if mode == 'none':
+                                self.assertNotIn('last_frame', graph['condition']['inputs'])
+                            else:
+                                self.assertEqual(graph['condition']['inputs']['last_frame'], ['fit' if mode == 'first' else 'last_fit', 0])
+                                if mode == 'custom':
+                                    self.assertEqual(graph['last']['inputs']['image'], str(tail))
+                        partial = [call.args for call in progress.call_args_list if len(call.args) == 2]
+                        self.assertEqual(partial, [(f'已完成 {i}/{count} 支影片', names[:i]) for i in range(1, count + 1)])
+                        progress.assert_any_call(f'第 {count}/{count} 支：正在將首幀生成影片…')
+
+    def test_source_validation_precedes_gpu_work_and_seed_wraps(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             source = output / 'source.png'
@@ -142,9 +181,90 @@ class H3Test(unittest.TestCase):
                 self.assertEqual(runner.call_args.args[2], 42)
                 self.assertEqual(runner.call_args.args[-2], source)
                 self.assertIsNone(runner.call_args.args[-1])
-                for images in ([], [source, source]):
-                    with self.assertRaisesRegex(ValueError, '一張'):
+                for images in ([], [source] * 5):
+                    with self.assertRaisesRegex(ValueError, '1 至 4'):
                         generate(payload, images, output, Mock())
+                with self.assertRaisesRegex(ValueError, '尾幀'):
+                    generate({**payload, 'parameters': dict(end_frame='custom')}, [source], output, Mock())
+                payload['parameters']['seed'] = 9007199254740991
+                runner.reset_mock()
+                generate(payload, [source] * 4, output, Mock())
+                self.assertEqual([call.args[2] for call in runner.call_args_list], [9007199254740991, 0, 1, 2])
+
+    def test_partial_batch_is_downloadable_before_failure_and_keeps_shared_tail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            second_started, release = threading.Event(), threading.Event()
+            calls = []
+
+            def run(params, prompt, seed, output, report, source, last):
+                calls.append((source, last))
+                if len(calls) == 2:
+                    second_started.set()
+                    if not release.wait(5):
+                        raise AssertionError('Test did not release worker')
+                    raise RuntimeError('private upstream prompt')
+                output.write_bytes(b'completed video')
+                return [output.name]
+
+            with patch('mobile.generation.gpu_lock', return_value=nullcontext()), patch('mobile.h3.run', side_effect=run):
+                app = create_app(root / 'state', root / 'output', settings_path=root / 'settings.json')
+                with TestClient(app, base_url='http://localhost:8787') as client:
+                    origin = {'Origin': 'http://localhost:8787'}
+                    code = (root / 'state/access-code.txt').read_text()
+                    csrf = client.post('/api/login', json={'code': code}, headers=origin).json()['csrf']
+                    headers = {**origin, 'X-Qianmi-CSRF': csrf}
+                    png = io.BytesIO(); Image.new('RGB', (32, 32)).save(png, format='PNG')
+                    images = [client.post('/api/uploads', content=png.getvalue(), headers=headers).json()['id'] for _ in range(5)]
+                    payload = dict(prompt='cat blinks', workflow='h3_image', images=images[:4], last_image=images[4],
+                                   parameters=dict(end_frame='custom', seed=42), request_id='c' * 32)
+                    job = client.post('/api/jobs', json=payload, headers=headers).json()
+                    try:
+                        self.assertTrue(second_started.wait(5))
+                        partial = client.get('/api/jobs/' + job['id']).json()
+                        self.assertEqual(partial['status'], 'running')
+                        self.assertEqual(partial['result_files'], ['0.mp4'])
+                        self.assertIn('2/4', partial['message'])
+                        self.assertEqual(client.get(partial['results'][0]).content, b'completed video')
+                    finally:
+                        release.set()
+                    for _ in range(100):
+                        result = client.get('/api/jobs/' + job['id']).json()
+                        if result['status'] == 'failed':
+                            break
+                        time.sleep(.02)
+                    self.assertEqual(result['status'], 'failed')
+                    self.assertIn('第 2/4 支', result['message'])
+                    self.assertIn('已保留 1 支', result['message'])
+                    self.assertNotIn('private upstream prompt', result['message'])
+                    self.assertEqual(result['result_files'], ['0.mp4'])
+                    self.assertEqual(client.get(result['results'][0]).content, b'completed video')
+                    expected_tail = root / 'state/uploads' / f'{images[4]}.png'
+                    self.assertEqual(calls, [(root / 'state/uploads' / f'{image}.png', expected_tail) for image in images[:2]])
+
+    def test_migrates_old_tail_and_retains_it_while_queued(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first, last, job_id = 'a' * 32, 'b' * 32, 'c' * 32
+            store = Store(root / 'state', root / 'output')
+            with store.connect() as db:
+                db.execute('ALTER TABLE jobs DROP COLUMN last_image')
+                db.execute('INSERT INTO jobs (id,status,workflow,sources,results,parameters) VALUES (?,?,?,?,?,?)',
+                           (job_id, 'queued', 'h3_image', json.dumps([first, last]), '[]', '{"end_frame":"custom"}'))
+                db.execute('INSERT INTO uploads VALUES (?,?)', (last, 1))
+            tail = root / 'state/uploads' / f'{last}.png'
+            tail.touch()
+            store = Store(root / 'state', root / 'output')
+            job = store.public_job(store.job(job_id))
+            self.assertEqual(job['sources'], ['/api/uploads/' + first])
+            self.assertEqual(job['last_image'], '/api/uploads/' + last)
+            store.cleanup()
+            self.assertTrue(tail.is_file())
+            store = Store(root / 'state', root / 'output')
+            self.assertEqual(store.public_job(store.job(job_id))['sources'], job['sources'])
+            store.update(job_id, 'failed', 'stopped')
+            store.cleanup()
+            self.assertFalse(tail.exists())
 
     def test_downloads_video_and_reports_safe_execution_errors(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -153,17 +273,19 @@ class H3Test(unittest.TestCase):
                 dict(filename='clip.mp4', subfolder='qianmi_h3', type='output')]}}}}
             with patch('mobile.h3.ensure_models'), patch('mobile.h3.ensure_server'), \
                     patch('mobile.h3.image_input', return_value=nullcontext('source.png')), \
-                    patch('mobile.h3.request_json', side_effect=[{'prompt_id': 'p'}, history]), \
-                    patch('mobile.h3.urlopen', return_value=io.BytesIO(b'test-video')):
-                self.assertEqual(h3.run({}, 'cat', 42, output, Mock(), output / 'source.png'), ['0.mp4'])
-                self.assertEqual((output / '0.mp4').read_bytes(), b'test-video')
+                    patch('mobile.h3.urlopen', side_effect=[io.BytesIO(b'first-video'), io.BytesIO(b'next-video')]), \
+                    patch('mobile.h3.request_json', side_effect=[{'prompt_id': 'p'}, history] * 2):
+                self.assertEqual(h3.run({}, 'cat', 42, output / '0.mp4', Mock(), output / 'source.png'), ['0.mp4'])
+                self.assertEqual(h3.run({}, 'cat', 43, output / '1.mp4', Mock(), output / 'source.png'), ['1.mp4'])
+                self.assertEqual((output / '0.mp4').read_bytes(), b'first-video')
+                self.assertEqual((output / '1.mp4').read_bytes(), b'next-video')
             history['p']['status'] = {'status_str': 'error', 'messages': [('execution_error', {
                 'node_id': 'sample', 'exception_message': 'private prompt'})]}
             with patch('mobile.h3.ensure_models'), patch('mobile.h3.ensure_server'), \
                     patch('mobile.h3.image_input', return_value=nullcontext('source.png')), \
                     patch('mobile.h3.request_json', side_effect=[{'prompt_id': 'p'}, history]):
                 with self.assertRaisesRegex(h3.ComfyWorkflowError, 'SamplerCustomAdvanced') as result:
-                    h3.run({}, 'private prompt', 42, output, Mock(), output / 'source.png')
+                    h3.run({}, 'private prompt', 42, output / '2.mp4', Mock(), output / 'source.png')
                 self.assertNotIn('private prompt', str(result.exception))
 
     def test_models_share_files_without_copying_or_overwriting(self):

@@ -114,17 +114,20 @@ def main():
             emit(value)
             return
         images = []
-        for name in payload['images']:
+        last_image = None
+        for name in payload['images'] + ([payload['last_image']] if payload.get('last_image') else []):
             path = Path(name)
             if path.stat().st_size > 12 * 1024 * 1024:
                 raise RuntimeError('單張圖片不可超過 12 MB。')
             images.append(client.request('/api/uploads', raw=path.read_bytes())['id'])
+        if payload.get('last_image'):
+            last_image = images.pop()
         job = client.request('/api/jobs', dict(prompt=payload['prompt'], workflow=payload['workflow'],
                                              parameters=payload.get('parameters', {}),
-                                             precise_mode=payload.get('precise_mode', False), images=images,
+                                             precise_mode=payload.get('precise_mode', False), images=images, last_image=last_image,
                                              request_id=secrets.token_hex(16), origin=desktop_origin()))
         seen = 0
-        total = 1 if payload['workflow'] in ('reference', 'h3_image') else max(1, len(images))
+        total = 1 if payload['workflow'] == 'reference' else max(1, len(images))
         while True:
             for index in range(seen, len(job['results'])):
                 name = job['result_files'][index]

@@ -138,10 +138,10 @@ def execute_video(value, output, name):
                 if not files:
                     raise ComfyWorkflowError(f'{name} 未產生影片，請查看 .runtime/superduper.log。')
                 query = urlencode({key: files[-1][key] for key in ('filename', 'subfolder', 'type')})
-                with urlopen(URL + '/view?' + query, timeout=120) as response, (output / '0.mp4').open('wb') as target:
+                with urlopen(URL + '/view?' + query, timeout=120) as response, output.open('wb') as target:
                     shutil.copyfileobj(response, target)
-                if not (output / '0.mp4').stat().st_size:
+                if not output.stat().st_size:
                     raise ComfyWorkflowError(f'{name} 輸出檔案為空，請查看 .runtime/superduper.log。')
-                return ['0.mp4']
+                return [output.name]
         time.sleep(1)
     raise ComfyWorkflowError(f'{name} 影片生成逾時，請查看 .runtime/superduper.log。')

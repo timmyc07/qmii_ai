@@ -21,7 +21,7 @@ def generate(payload, sources, output_dir, progress):
         raise RuntimeError('多圖參考生成至少需要 2 張參考圖片。')
     params = validate_parameters(payload.get('parameters', {}), workflow)
     if workflow == 'h3_image':
-        validate_h3_sources(params, sources)
+        validate_h3_sources(params, sources, payload.get('last_image'))
 
     def new_seed(index=0):
         return (params['seed'] + index) % 9007199254740992 if 'seed' in params else secrets.randbelow(2**53)
@@ -30,10 +30,18 @@ def generate(payload, sources, output_dir, progress):
     with gpu_lock():
         prompt = payload['prompt']
         if workflow == 'h3_image':
-            from .h3 import run
-            results = run(params, prompt, new_seed(), output_dir, progress, sources[0],
-                          sources[1] if len(sources) == 2 else None)
-            progress('影片完成', results)
+            from .h3 import ComfyWorkflowError, run
+            results = []
+            for index, source in enumerate(sources):
+                progress(f'正在生成第 {index + 1}/{len(sources)} 支影片…')
+                try:
+                    results.extend(run(params, prompt, new_seed(index), output_dir / f'{index}.mp4',
+                                       lambda message: progress(f'第 {index + 1}/{len(sources)} 支：{message}'),
+                                       source, payload.get('last_image')))
+                except Exception as exc:
+                    detail = str(exc) if isinstance(exc, ComfyWorkflowError) else '請確認電腦的模型服務與顯示卡狀態。'
+                    raise ComfyWorkflowError(f'第 {index + 1}/{len(sources)} 支影片生成失敗，已保留 {len(results)} 支完成的影片。{detail}') from None
+                progress(f'已完成 {len(results)}/{len(sources)} 支影片', list(results))
             return results
         if payload.get('precise_mode'):
             from .precision import apply_rules

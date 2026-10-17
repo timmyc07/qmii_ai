@@ -71,7 +71,7 @@ function setStudioMode(mode) {
   $('creation-title').textContent = video ? '✧ 影片設定' : '✧ 創作設定';
   conversation.setAttribute('aria-label', video ? '影片創作對話' : '圖片創作對話');
   $('welcome').querySelector('h1').textContent = video ? '讓你的圖片動起來 ♡' : '今天想創作什麼呢？♡';
-  $('welcome').querySelector('.welcome-copy').textContent = video ? '上傳一張首幀，描述接下來的動作與聲音，生成有聲影片。' : '說說你的想法，或選張圖片，讓千迷AI陪你一起改造。';
+  $('welcome').querySelector('.welcome-copy').textContent = video ? '最多選擇 4 張首幀，套用相同提示詞與參數，每張各自生成一支影片。' : '說說你的想法，或選張圖片，讓千迷AI陪你一起改造。';
   $('welcome').querySelector('.idea-chips').classList.toggle('hidden', video);
   $('welcome').classList.toggle('hidden', currentFeed().childElementCount > 0);
   promptInput.value = state.drafts[mode].prompt; state.images = [...state.drafts[mode].images];
@@ -546,20 +546,20 @@ async function submitPrompt() {
   const images = [...state.images];
   const workflow = video ? 'h3_image' : state.workflow;
   const parameters = video ? videoParameters() : currentParameters();
-  if (video && images.length !== 1) { toast('請先選擇一張首幀圖片'); return; }
+  if (video && (images.length < 1 || images.length > MAX_REFERENCE_IMAGES)) { toast('請選擇 1 至 4 張首幀圖片'); return; }
+  const lastImage = video && parameters.end_frame === 'custom' ? state.videoLastImage : null;
   if (video && parameters.end_frame === 'custom') {
-    if (!state.videoLastImage) { toast('請選擇尾幀圖片，或將尾幀約束改為不使用'); return; }
-    images.push(state.videoLastImage);
+    if (!lastImage) { toast('請選擇尾幀圖片，或將尾幀約束改為不使用'); return; }
   }
   if (workflow === 'reference' && images.length < 2) { toast('多圖參考生成至少需要 2 張參考圖片'); return; }
   $('welcome').classList.add('hidden');
   const target = currentFeed();
-  appendUserMessage(finalPrompt, images);
+  appendUserMessage(finalPrompt, lastImage ? [...images, lastImage] : images);
   const progress = document.createElement('div'); progress.className = 'message progress-card'; progress.innerHTML = '<span class="spinner"></span><span>正在準備模型…</span>'; target.appendChild(progress);
   state.resultTarget = target; state.currentProgress = progress; promptInput.value = ''; resizePrompt();
   if (!video) state.images = [];
   renderImageTray(); setBusy(true); scrollFeed(true);
-  try { await invoke('generate_images', { prompt: finalPrompt, images, workflow, parameters, preciseMode: video ? false : state.preciseMode }); }
+  try { await invoke('generate_images', { prompt: finalPrompt, images, lastImage, workflow, parameters, preciseMode: video ? false : state.preciseMode }); }
   catch (e) { progress.className = 'message error-card'; progress.textContent = `工作無法啟動：${e}`; setBusy(false); toast('生成啟動失敗'); }
 }
 
@@ -574,7 +574,7 @@ function renderImageTray() {
     tray.appendChild(wrap);
   });
   if (!state.images.length) { $('batch-label').textContent = ''; return; }
-  $('batch-label').textContent = state.studioMode === 'h3_image' ? `影片首幀 · ${$('video-crop').value === 'center' ? '置中裁切' : '拉伸填滿'}` : state.workflow === 'reference'
+  $('batch-label').textContent = state.studioMode === 'h3_image' ? `${state.images.length} 張首幀 · 每張各自生成一支影片 · ${$('video-crop').value === 'center' ? '置中裁切' : '拉伸填滿'}` : state.workflow === 'reference'
     ? `${state.images.length} 張參考圖${state.images.length >= 2 ? ' · 會融合參考' : ''}`
     : `${state.images.length} 張圖片${state.images.length > 1 ? ' · 會依序修改' : ''}`;
 }
@@ -582,11 +582,10 @@ function renderImageTray() {
 async function chooseImages() {
   try {
     const mode = state.studioMode, video = mode === 'h3_image';
-    const picked = await open({ multiple: !video, directory: false, title: video ? '選擇影片首幀' : '選擇要修改的圖片', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
+    const picked = await open({ multiple: true, directory: false, title: video ? '選擇影片首幀（最多 4 張）' : '選擇要修改的圖片', filters: [{ name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }] });
     if (!picked) return;
     if (mode !== state.studioMode) return;
     const paths = Array.isArray(picked) ? picked : [picked];
-    if (video) { state.images = paths.slice(0, 1); renderImageTray(); return; }
     for (const file of paths) {
       if (state.images.length >= MAX_REFERENCE_IMAGES) {
         toast(`一次最多 ${MAX_REFERENCE_IMAGES} 張圖片`);

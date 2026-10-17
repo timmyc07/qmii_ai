@@ -193,6 +193,7 @@ async fn generate_images(
     app: AppHandle,
     prompt: String,
     images: Vec<String>,
+    last_image: Option<String>,
     workflow: String,
     parameters: serde_json::Value,
     precise_mode: bool,
@@ -203,7 +204,7 @@ async fn generate_images(
     tauri::async_runtime::spawn_blocking(move || {
         bridge(
             "generate",
-            serde_json::json!({"prompt": prompt, "images": images, "workflow": workflow,
+            serde_json::json!({"prompt": prompt, "images": images, "last_image": last_image, "workflow": workflow,
                 "parameters": parameters, "precise_mode": precise_mode}),
             Some(app),
         )

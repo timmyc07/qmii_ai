@@ -8,6 +8,10 @@ const { chromium } = require('playwright');
 (async () => {
   const source = path.join(__dirname, '..', 'src');
   const server = http.createServer((request, response) => {
+    if (/^\/(fixture|second|third|fourth|last)\.png$/.test(request.url)) {
+      response.setHeader('Content-Type', 'image/svg+xml');
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="240"><rect width="160" height="240" fill="#dbcdf4"/><circle cx="110" cy="65" r="25" fill="#fff0c5"/><path d="M0 180L55 100L160 230V240H0" fill="#a59bc9"/></svg>'); return;
+    }
     const file = { '/': 'index.html', '/app.js': 'app.js', '/styles.css': 'styles.css' }[request.url];
     if (!file) { response.writeHead(404).end(); return; }
     response.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8');
@@ -46,7 +50,7 @@ const { chromium } = require('playwright');
               return test.info = { ...stopped };
             }
           }
-        }, dialog: { open: async () => window.testMobile.openPath || null }, event: { listen: async (name, handler) => { if (name === 'generation-progress') window.testMobile.progress = handler; } }
+        }, dialog: { open: async options => { window.testMobile.openOptions = options; return window.testMobile.openPath || null; } }, event: { listen: async (name, handler) => { if (name === 'generation-progress') window.testMobile.progress = handler; } }
       };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
@@ -118,6 +122,8 @@ const { chromium } = require('playwright');
     await page.evaluate(() => { window.testMobile.openPath = '/fixture.png'; });
     await page.click('#upload-images');
     await page.waitForSelector('#image-tray img');
+    assert.equal(await page.evaluate(() => window.testMobile.openOptions.multiple), true);
+    assert.match(await page.locator('#batch-label').innerText(), /1 張首幀.*每張各自生成一支影片/);
     await page.click('#video-example');
     assert.match(await page.locator('#prompt').inputValue(), /00:06\.000/);
     await page.fill('#video-seed', '42');
@@ -130,6 +136,7 @@ const { chromium } = require('playwright');
     const submitted = await page.evaluate(() => window.testMobile.generation);
     assert.equal(submitted.workflow, 'h3_image');
     assert.deepEqual(submitted.images, ['/fixture.png']);
+    assert.equal(submitted.lastImage, null);
     assert.equal(submitted.parameters.duration, 6);
     assert.equal(submitted.parameters.seed, 42);
     assert.equal(submitted.preciseMode, false);
@@ -154,12 +161,32 @@ const { chromium } = require('playwright');
     await page.uncheck('#video-audio');
     await page.check('#video-identity');
     await page.selectOption('#video-end-frame', 'custom');
+    await page.evaluate(() => { window.testMobile.openPath = ['/fixture.png', '/second.png', '/third.png', '/fourth.png', '/overflow.png']; });
+    await page.click('#upload-images');
+    assert.equal(await page.locator('#image-tray img').count(), 4);
+    assert.match(await page.locator('#batch-label').innerText(), /4 張首幀.*每張各自生成一支影片/);
+    assert.match(await page.locator('#toast').innerText(), /最多 4 張/);
+    await page.fill('#prompt', 'cat blinks');
+    await page.click('#send');
+    assert.match(await page.locator('#toast').innerText(), /請選擇尾幀圖片/);
+    assert.equal(await page.evaluate(() => window.testMobile.calls.filter(name => name === 'generate_images').length), 1);
     await page.evaluate(() => { window.testMobile.openPath = '/last.png'; });
     await page.click('#video-last-upload');
+    assert.equal(await page.evaluate(() => window.testMobile.openOptions.multiple), false);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 820 });
+      await page.waitForTimeout(350);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.equal(await page.locator('#image-tray img').count(), 4);
+      await page.screenshot({ path: path.join(__dirname, `../.runtime/h3-batch-preview-${width}.png`), fullPage: true });
+    }
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.waitForTimeout(350);
     await page.fill('#prompt', 'cat blinks');
     await page.click('#send');
     const custom = await page.evaluate(() => window.testMobile.generation);
-    assert.deepEqual(custom.images, ['/fixture.png', '/last.png']);
+    assert.deepEqual(custom.images, ['/fixture.png', '/second.png', '/third.png', '/fourth.png']);
+    assert.equal(custom.lastImage, '/last.png');
     assert.equal(custom.parameters.steps, 25);
     assert.equal(custom.parameters.video_audio, false);
     assert.equal(custom.parameters.identity_prompt, true);
@@ -167,7 +194,26 @@ const { chromium } = require('playwright');
     assert.equal(custom.parameters.video_crf, 23);
     assert.ok(!('lora_strength' in custom.parameters));
     assert.equal(await page.locator('#video-results-h3_image .user-message').last().innerText(), '');
-    await page.evaluate(() => window.testMobile.progress({ payload: { video: '/fixture.mp4', index: 1, total: 1, message: '影片完成', done: true } }));
+    assert.equal(await page.locator('#video-results-h3_image .user-message').last().locator('img').count(), 5);
+    await page.evaluate(() => window.testMobile.progress({ payload: { video: '/first.mp4', index: 1, total: 4, message: '已完成 1/4 支影片', done: false } }));
+    assert.match(await page.locator('.progress-card').innerText(), /1\/4/);
+    assert.equal(await page.locator('#send').isDisabled(), true);
+    await page.evaluate(() => window.testMobile.progress({ payload: { index: 1, total: 4, message: '第 2/4 支影片生成失敗，已保留 1 支完成的影片。', error: '第 2/4 支影片生成失敗', done: true } }));
+    assert.equal(await page.locator('#video-results-h3_image video[controls]').count(), 2);
+    assert.match(await page.locator('.error-card').innerText(), /已保留 1 支/);
+    assert.equal(await page.locator('#send').isDisabled(), false);
+    await page.selectOption('#video-end-frame', 'first');
+    await page.fill('#prompt', 'return to each starting pose');
+    await page.click('#send');
+    const loop = await page.evaluate(() => window.testMobile.generation);
+    assert.equal(loop.images.length, 4);
+    assert.equal(loop.lastImage, null);
+    assert.equal(loop.parameters.end_frame, 'first');
+    for (let index = 1; index <= 4; index++) {
+      await page.evaluate(index => window.testMobile.progress({ payload: { video: `/batch-${index}.mp4`, index, total: 4, message: `已完成 ${index}/4 支影片`, done: index === 4 } }), index);
+    }
+    assert.equal(await page.locator('#video-results-h3_image video[controls]').count(), 6);
+    assert.equal(new Set(await page.locator('#video-results-h3_image video').evaluateAll(nodes => nodes.map(node => node.src))).size, 6);
     await page.click('#video-reset-settings');
     assert.equal(await page.locator('#video-profile').inputValue(), 'turbo4');
     assert.equal(await page.locator('#video-end-frame').inputValue(), 'none');

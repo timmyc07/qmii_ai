@@ -56,6 +56,7 @@ class JobInput(BaseModel):
     precise_mode: bool = False
     origin: JobOrigin = Field(default_factory=JobOrigin)
     images: list[str] = Field(default_factory=list, max_length=4)
+    last_image: str | None = Field(default=None, pattern='^[a-f0-9]{32}$')
     request_id: str = Field(pattern='^[a-f0-9]{32}$')
 
 
@@ -107,9 +108,13 @@ class Store:
             for name, definition in [('origin', "TEXT NOT NULL DEFAULT '{}'"),
                                      ('started', 'REAL'), ('finished', 'REAL'),
                                      ('parameters', "TEXT NOT NULL DEFAULT '{}'") ,
-                                     ('precise_mode', 'INTEGER NOT NULL DEFAULT 0')]:
+                                     ('precise_mode', 'INTEGER NOT NULL DEFAULT 0'), ('last_image', 'TEXT')]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
+                    if name == 'last_image':
+                        db.execute("""UPDATE jobs SET last_image=json_extract(sources,'$[1]'),
+                                      sources=json_remove(sources,'$[1]') WHERE workflow='h3_image'
+                                      AND json_extract(parameters,'$.end_frame')='custom'""")
 
     @contextmanager
     def connect(self):
@@ -159,6 +164,7 @@ class Store:
                     updated=row['updated'], started=row['started'], finished=row['finished'],
                     origin=json.loads(row['origin']),
                     sources=[f'/api/uploads/{value}' for value in sources], result_files=results,
+                    last_image=f'/api/uploads/{row["last_image"]}' if row['last_image'] else None,
                     results=[f'/api/jobs/{row["id"]}/images/{i}' for i in range(len(results))])
 
     def cleanup(self):
@@ -166,6 +172,8 @@ class Store:
         with self.connect() as db:
             active = {value for row in db.execute("SELECT sources FROM jobs WHERE status IN ('queued','running')")
                       for value in json.loads(row['sources'])}
+            active.update(row['last_image'] for row in db.execute("SELECT last_image FROM jobs WHERE status IN ('queued','running')")
+                          if row['last_image'])
             for row in db.execute('SELECT id FROM uploads WHERE created<?', (cutoff,)).fetchall():
                 if row['id'] not in active:
                     (self.state / 'uploads' / f'{row["id"]}.png').unlink(missing_ok=True)
@@ -224,6 +232,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             try:
                 payload = dict(prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
                                precise_mode=bool(row['precise_mode']))
+                if row['last_image']:
+                    payload['last_image'] = store.state / 'uploads' / f'{row["last_image"]}.png'
                 sources = [store.state / 'uploads' / f'{value}.png' for value in json.loads(row['sources'])]
                 output = store.output / job_id
                 output.mkdir(exist_ok=True)
@@ -401,7 +411,9 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             parameters = validate_parameters(value.parameters.model_dump(exclude_none=True) if value.parameters is not None
                                              else {k: v for k, v in defaults.items() if v is not None}, value.workflow)
             if value.workflow == 'h3_image':
-                validate_h3_sources(parameters, value.images)
+                validate_h3_sources(parameters, value.images, value.last_image)
+            elif value.last_image is not None:
+                raise ValueError('尾幀圖片僅適用於圖片生影片模式。')
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         job_id, now = secrets.token_hex(16), time.time()
@@ -413,14 +425,14 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             count = db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
             if count >= 8:
                 raise HTTPException(429, '電腦目前排隊已滿，請稍後再試。')
-            for upload_id in value.images:
+            for upload_id in value.images + ([value.last_image] if value.last_image else []):
                 identifier(upload_id)
                 if not db.execute('SELECT id FROM uploads WHERE id=?', (upload_id,)).fetchone():
                     raise HTTPException(422, '找不到上傳圖片，請重新選擇。')
-            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated,origin,parameters,precise_mode,last_image) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (job_id, value.request_id, 'queued', '已排隊，等待電腦處理…', value.prompt,
                         value.workflow, json.dumps(value.images), '[]', now, now, json.dumps(value.origin.model_dump()),
-                        json.dumps(parameters), int(value.precise_mode)))
+                        json.dumps(parameters), int(value.precise_mode), value.last_image))
         wake.set()
         LOG.info('Job queued id=%s', job_id)
         return store.public_job(store.job(job_id))

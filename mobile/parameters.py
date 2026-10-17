@@ -57,7 +57,11 @@ def validate_parameters(value, workflow=None):
     return result
 
 
-def validate_h3_sources(parameters, sources):
-    expected = 2 if parameters.get('end_frame') == 'custom' else 1
-    if len(sources) != expected:
-        raise ValueError('圖片生影片需要一張首幀圖片；自選尾幀時另需一張尾幀圖片。')
+def validate_h3_sources(parameters, sources, last_image=None):
+    if not 1 <= len(sources) <= 4:
+        raise ValueError('圖片生影片需要 1 至 4 張首幀圖片，每張各自生成一支影片。')
+    if parameters.get('end_frame') == 'custom':
+        if not last_image:
+            raise ValueError('自選尾幀時另需一張尾幀圖片。')
+    elif last_image is not None:
+        raise ValueError('只有自選尾幀模式可提供尾幀圖片。')

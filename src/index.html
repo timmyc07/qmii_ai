@@ -81,7 +81,7 @@
             <h2>一致性輔助（可選）</h2>
             <label class="video-check"><input id="video-identity" type="checkbox">加入主體一致性描述</label>
             <p class="creation-help">在提示詞中要求保留首幀主體特徵；這是文字引導，不能保證臉部不漂移。</p>
-            <div class="parameter-grid"><label>尾幀約束<select id="video-end-frame"><option value="none">不使用（自由動作）</option><option value="first">以首幀作為尾幀</option><option value="custom">自選尾幀圖片</option></select></label></div>
+            <div class="parameter-grid"><label>尾幀約束<select id="video-end-frame"><option value="none">不使用（自由動作）</option><option value="first">各自以首幀作為尾幀</option><option value="custom">自選尾幀圖片（每支共用）</option></select></label></div>
             <div id="video-last-controls" class="hidden"><button id="video-last-upload" type="button" class="secondary-button">選擇尾幀圖片</button><div id="video-last-preview" class="image-tray"></div></div>
             <p class="creation-help">使用 H3 原生首尾幀條件。相同首尾幀適合回到起始姿勢，可能減少動作幅度；不會鎖定影片中間每一幀。自選尾幀在提示詞中以 &lt;Picture 2&gt; 參照。</p>
             <details class="creation-help"><summary>RefMod 核對結果</summary><p>RefMod 是 VAE 參考資料包，不是訓練出的角色 LoRA。4～8 張圖沒有保證身分鎖定的證據，壓縮也可能丟失臉部細節。目前首尾幀 FL2VA 模型與官方多圖參考 Ref2VA 模型不同，此配方未加入未經驗證的 RefMod 注入。</p><p>同一角色選擇清楚的首幀、避免大幅遮臉與快速轉身，並比較固定種子下的一致性輔助效果。</p></details>
