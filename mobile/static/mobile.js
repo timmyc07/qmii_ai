@@ -2,6 +2,13 @@
 const $ = id => document.getElementById(id);
 let csrf = '', selected = [], timer, installPrompt, submitting = false;
 const cards = new Map();
+let currentJobId = null, cancelling = false;
+$('cancel-generation').onclick = async () => {
+  if (!currentJobId || cancelling) return;
+  cancelling = true; $('cancel-generation').disabled = true; $('cancel-generation').textContent = '終止中…';
+  try { renderJob(await jsonPost(`/api/jobs/${currentJobId}/cancel`, {})); }
+  catch (error) { cancelling = false; $('cancel-generation').disabled = false; $('cancel-generation').textContent = '■ 強制終止'; toast(error.message); }
+};
 $('workflow').onchange = renderParameters;
 let settings = { presets: [], preciseMode: false, revision: '' }, dirty = false, editingId = null, libraryOffset = 0;
 
@@ -151,6 +158,7 @@ async function api(path, options = {}) {
 const jsonPost = (path, value) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
 function showLogin() {
+  currentJobId = null; cancelling = false; $('cancel-generation').classList.add('hidden');
   csrf = ''; clearTimeout(timer); cards.clear();
   document.querySelectorAll('.job').forEach(node => node.remove());
   selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
@@ -188,13 +196,18 @@ function renderJob(job) {
   }
   const origin = job.origin || {};
   card.querySelector('.job-metadata').textContent = `提交：${jobTime(job.created)}
-開始：${job.started ? jobTime(job.started) : '尚未開始／未記錄'} · ${job.status === 'failed' ? '失敗' : '完成'}：${job.finished ? jobTime(job.finished) : '尚未結束／未記錄'}
+開始：${job.started ? jobTime(job.started) : '尚未開始／未記錄'} · ${job.status === 'cancelled' ? '終止' : job.status === 'failed' ? '失敗' : '完成'}：${job.finished ? jobTime(job.finished) : '尚未結束／未記錄'}
 平台：${origin.platform || '未記錄'}
 設備：${origin.device || '未記錄'}
 使用者（來源回報）：${origin.user || '未記錄'}
 設備識別碼：${origin.device_id || '未記錄'}
 任務編號：${job.id}`;
   const status = card.querySelector('.job-status'); status.textContent = job.message; status.classList.toggle('failed', job.status === 'failed');
+  if (job.id === currentJobId) {
+    const active = ['queued', 'running', 'cancelling'].includes(job.status);
+    $('cancel-generation').classList.toggle('hidden', !active);
+    if (!active) { currentJobId = null; cancelling = false; }
+  }
   job.results.forEach((url, index) => {
     if (card.querySelector(`[data-result="${index}"]`)) return;
     const figure = document.createElement('figure'); figure.className = 'result'; figure.dataset.result = index;
@@ -210,7 +223,14 @@ function renderJob(job) {
 async function refresh() {
   clearTimeout(timer);
   try {
-    const { jobs } = await api('/api/jobs'); jobs.forEach(renderJob);
+    const { jobs } = await api('/api/jobs');
+    const active = jobs.find(job => ['running', 'cancelling'].includes(job.status)) || jobs.find(job => job.status === 'queued');
+    if (currentJobId !== active?.id) { currentJobId = active?.id || null; cancelling = false; }
+    cancelling ||= active?.status === 'cancelling';
+    $('cancel-generation').classList.toggle('hidden', !active);
+    $('cancel-generation').disabled = cancelling;
+    $('cancel-generation').textContent = cancelling ? '終止中…' : '■ 強制終止';
+    jobs.forEach(renderJob);
     $('connection').textContent = '● 已連接私人工作室';
     if (!dirty && !$('preset-editor').open) {
       const current = await api('/api/settings');
@@ -218,7 +238,7 @@ async function refresh() {
     }
     $('welcome').classList.toggle('hidden', jobs.length > 0);
     $('welcome').querySelector('p').textContent = '寫下想法，或上傳圖片開始改造。';
-    if (csrf) timer = setTimeout(refresh, jobs.some(job => ['queued', 'running'].includes(job.status)) ? 2000 : 10000);
+    if (csrf) timer = setTimeout(refresh, jobs.some(job => ['queued', 'running', 'cancelling'].includes(job.status)) ? 2000 : 10000);
   } catch (error) {
     if (csrf) { $('connection').textContent = '○ 主機離線或連線中斷，正在重新連線…'; timer = setTimeout(refresh, 5000); }
   }
@@ -270,6 +290,7 @@ $('composer').onsubmit = async event => {
     const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), parameters, $('precise-mode').checked]);
     if ($('composer').pendingSignature !== signature) { $('composer').pendingSignature = signature; $('composer').pendingId = crypto.randomUUID().replaceAll('-', ''); }
     const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), precise_mode: $('precise-mode').checked, request_id: $('composer').pendingId, origin: jobOrigin(), parameters });
+    currentJobId = job.id; cancelling = false; $('cancel-generation').disabled = false; $('cancel-generation').textContent = '■ 強制終止';
     renderJob(job); $('welcome').classList.add('hidden'); $('prompt').value = '';
     $('composer').pendingSignature = ''; selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
     toast('已交給你的電腦處理。'); await refresh();

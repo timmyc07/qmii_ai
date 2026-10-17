@@ -87,6 +87,18 @@ def graph(parameters, prompt, seed, image, last_image=None):
         value['last'] = {'class_type': 'LoadImage', 'inputs': {'image': last_image}}
         value['last_fit'] = {'class_type': 'ImageScale', 'inputs': {'image': ['last', 0], **resize}}
         value['condition']['inputs']['last_frame'] = ['last_fit', 0]
+    if parameters.get('refmod'):
+        value['refmod_extract'] = {'class_type': 'MiniMaxH3RefModExtract', 'inputs': {
+            'name': 'qianmi_identity', 'mode': 'Full Reference', 'concept_type': 'identity',
+            'refs_image.ref_image_1': ['fit', 0], 'vae': ['vae', 0], 'background_retention': 0,
+            'ref_resolution': 512, 'pool_h': 16, 'pool_w': 16, 'latent_frames': 1, 'identity': 0,
+            'merge': False, 'motion_only': False, 'multiplier': 1, 'max_tokens': 1024,
+            'extraction_preset': 'manual', 'description': '', 'save': False, 'budget_policy': 'error'}}
+        value['refmod_apply'] = {'class_type': 'MiniMaxH3RefModApply', 'inputs': {
+            'conditioning': ['condition', 0], 'mods': ['refmod_extract', 0], 'override': False,
+            'retention': 1, 'curve_direction': 'constant', 'curve_shape': 'linear', 'curve_value': 1,
+            'scramble_seed': -1, 'max_total_tokens': 1024}}
+        value['guider']['inputs']['conditioning'] = ['refmod_apply', 0]
     if not parameters.get('video_audio', True):
         del value['audio'], value['audio_vae'], value['video']['inputs']['audio']
     return value
@@ -117,6 +129,10 @@ def run(parameters, prompt, seed, output, progress, source, last_source=None):
         last = stack.enter_context(image_input(last_source)) if last_source is not None else None
         value = graph(parameters, prompt, seed, image, last)
         progress('正在準備 H3 影片服務，首次載入需要較長時間…')
+        if parameters.get('refmod'):
+            if not (COMFY / 'custom_nodes' / 'ComfyUI-MiniMaxH3Mod' / '__init__.py').is_file():
+                raise ComfyWorkflowError('RefMod 尚未安裝，請執行 python -m tools.install_refmod。')
+            progress('已啟用 RefMod，正在從本支影片首幀建立身分參考…')
         ensure_server({node['class_type'] for node in value.values()})
         progress('正在將首幀生成影片…')
         return execute_video(value, output, 'H3')

@@ -21,3 +21,5 @@ video { max-width: 100%; max-height: 60vh; border-radius: 12px; }
 .prompt-label { margin: .3rem .4rem 0; color: #80678f; font-size: .72rem; }
 .composer > textarea { max-height: 18dvh; }
 .composer > #negative-prompt { min-height: 2.5rem; max-height: 12dvh; font-size: .85rem; }
+#cancel-generation { color: #a64e65; white-space: nowrap; }
+.composer-tools { flex-wrap: wrap; }

@@ -19,3 +19,17 @@ NSFW Adv 群組共用同一套 ComfyUI，但使用獨立的 Qwen Image FP8、Qwe
 安裝器保留局部細修 LoRA 原檔，另產生 `_comfy.safetensors` 版本；將合併的 `gate_up` LoRA 投影等價拆為 `gate_layer`／`proj`，供 ComfyUI 完整載入。可使用 portable Python 執行 `tools\test_qwen_lora.py` 驗證拆分前後的投影等價性。
 
 精準模式的生成規範整理自使用者模板，由程式直接附加，不再依賴 PE T2I／I2I text encoder 或本機模板檔。已下載的 PE 模型保留在本機，但程式不再載入，也不再自動下載。模型、LoRA、LoKr 與 ComfyUI runtime 只保存在 `D:\AI\QwenImage21SuperDuper`，不提交 Git。
+
+## H3 RefMod
+
+RefMod 只支援 H3，沿用現有 FL2VA、Qwen3-VL 編碼器、影音 VAE 與所選 Turbo LoRA；不新增大型模型。Qwen 圖片模式不相容，介面標示停用。
+
+```powershell
+.runtime\mobile-venv\Scripts\python.exe -m tools.install_refmod
+```
+
+安裝器將 [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) 固定在 `517e8c419a8584fbf69fceb487bc39d83e6a6ec8`，先驗證 ZIP SHA256 `53c2b89eac307d7d22d27803df150f6a6e429234ecf36f4a29c3fe04cbdbb523` 才解壓縮至 Portable 的 `custom_nodes`。已有不同版本會拒絕覆寫；同版重跑不重裝。使用 Portable 既有的 torch、safetensors、numpy、Pillow，不執行 pip 或下載額外權重。
+
+安裝後須等 ComfyUI 佇列空閒，並確保沒有千迷AI GPU 工作，再重新啟動該 Portable 服務。本機已完成安裝與載入。若未安裝或尚未重新載入，啟用開關會明確回報缺少套件／節點。
+
+可使用 Portable Python 執行 `tools\test_refmod_runtime.py`，在 CPU 上驗證三種配方與三種尾幀圖，以及參考注入保留原生首尾幀條件；不載入生成權重。效果與限制見 [H3 說明](H3.md)。

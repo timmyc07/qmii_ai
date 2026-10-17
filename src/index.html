@@ -52,7 +52,7 @@
           <textarea id="prompt" rows="2" maxlength="8000" placeholder="描述希望生成的內容…"></textarea>
           <label for="negative-prompt" id="negative-label" class="prompt-label">負面提示詞</label>
           <textarea id="negative-prompt" rows="1" maxlength="4000" placeholder="描述不希望出現的內容，可留白…"></textarea>
-          <div class="composer-tools"><div class="composer-left"><button id="upload-images" class="upload-button"><span class="upload-icon">＋</span><span>上傳圖片</span></button><span id="batch-label" class="batch-label"></span></div><div class="composer-right"><button id="send" class="send-button" title="開始創作"><span>↑</span></button></div></div>
+          <div class="composer-tools"><div class="composer-left"><button id="upload-images" class="upload-button"><span class="upload-icon">＋</span><span>上傳圖片</span></button><span id="batch-label" class="batch-label"></span></div><div class="composer-right"><button id="cancel-generation" class="cancel-button hidden" type="button">■ 強制終止</button><button id="send" class="send-button" title="開始創作"><span>↑</span></button></div></div>
         </div>
         <p class="composer-note">♡ 圖片都留在你的電腦裡　·　原圖不會被覆蓋</p>
       </footer>
@@ -61,6 +61,8 @@
     <aside id="creation-panel" class="creation-panel" aria-label="創作設定">
       <div class="side-title"><span id="creation-title">✧ 創作設定</span><button id="creation-close" class="icon-button" aria-label="收起創作設定">×</button></div>
       <div id="image-settings">
+      <label class="video-check"><input id="image-refmod" type="checkbox" disabled>RefMod 身分參考（不相容）</label>
+      <p id="image-refmod-help" class="creation-help">RefMod 僅支援 MiniMax H3，無法套用到 Qwen 圖片模型。</p>
       <p class="creation-intro">Qwen Image 2.1 生成設定。</p>
       <div class="creation-section"><h2>生成模式</h2><div class="workflow-picker"><span class="workflow-caption">工作流</span><select id="workflow-mode" class="workflow-native" aria-hidden="true" tabindex="-1"><option value="quick">快速生成</option><option value="reference">多圖參考生成</option><option value="superduper">SuperDuper 群組</option><option value="nsfw_adv">NSFW Adv 群組</option></select><button type="button" id="workflow-trigger" class="workflow-trigger" aria-haspopup="listbox" aria-expanded="false"><span id="workflow-value">快速生成</span><span class="workflow-chevron" aria-hidden="true"></span></button><div id="workflow-menu" class="workflow-menu" role="listbox" aria-label="選擇圖片工作流"><button type="button" role="option" data-value="quick" aria-selected="true">快速生成</button><button type="button" role="option" data-value="reference" aria-selected="false">多圖參考生成</button><button type="button" role="option" data-value="superduper" aria-selected="false">SuperDuper 群組</button><button type="button" role="option" data-value="nsfw_adv" aria-selected="false">NSFW Adv 群組</button></div></div><p id="workflow-help" class="creation-help">Qwen Image Turbo 文字生圖；有圖片時逐張修改。</p></div>
       <div class="creation-section"><h2>生成參數</h2><p class="creation-help">留白沿用所選工作流配方。參數會記錄在任務中，方便重現。</p><div id="generation-parameters" class="parameter-grid"></div><p id="recipe-lock" class="recipe-lock">配方固定：Euler 採樣器、Turbo 8-step Sigma 排程。步數不是 8 時會改用模型的一般排程。</p><button id="save-parameters" class="secondary-button">儲存為此模式預設</button><button id="reset-parameters" class="secondary-button">還原配方</button></div>
@@ -82,12 +84,14 @@
             <p id="video-summary" class="creation-help" role="status"></p>
             <label class="video-check"><input id="video-audio" type="checkbox" checked>保留生成的聲音</label>
             <h2>一致性輔助（可選）</h2>
+            <label class="video-check"><input id="video-refmod" type="checkbox">啟用 RefMod 身分參考</label>
+            <p class="creation-help">每支影片以各自首幀建立 RefMod，加入 H3 參考條件。會增加耗時與記憶體用量，也可能帶入背景；不能保證身分不漂移。</p>
             <label class="video-check"><input id="video-identity" type="checkbox">加入主體一致性描述</label>
             <p class="creation-help">在提示詞中要求保留首幀主體特徵；這是文字引導，不能保證臉部不漂移。</p>
             <div class="parameter-grid"><label>尾幀約束<select id="video-end-frame"><option value="none">不使用（自由動作）</option><option value="first">各自以首幀作為尾幀</option><option value="custom">自選尾幀圖片（每支共用）</option></select></label></div>
             <div id="video-last-controls" class="hidden"><button id="video-last-upload" type="button" class="secondary-button">選擇尾幀圖片</button><div id="video-last-preview" class="image-tray"></div></div>
             <p class="creation-help">使用 H3 原生首尾幀條件。相同首尾幀適合回到起始姿勢，可能減少動作幅度；不會鎖定影片中間每一幀。自選尾幀在提示詞中以 &lt;Picture 2&gt; 參照。</p>
-            <details class="creation-help"><summary>RefMod 核對結果</summary><p>RefMod 是 VAE 參考資料包，不是訓練出的角色 LoRA。4～8 張圖沒有保證身分鎖定的證據，壓縮也可能丟失臉部細節。目前首尾幀 FL2VA 模型與官方多圖參考 Ref2VA 模型不同，此配方未加入未經驗證的 RefMod 注入。</p><p>同一角色選擇清楚的首幀、避免大幅遮臉與快速轉身，並比較固定種子下的一致性輔助效果。</p></details>
+            <details class="creation-help"><summary>RefMod 使用方式與限制</summary><p>RefMod 是 H3 VAE 參考資料，不是角色 LoRA。此開關沿用目前 FL2VA 與所選 Turbo／原版配方，保留首尾幀及音訊規則，只加入額外影像參考。使用單張首幀的完整編碼，不混合批次中其他人物；關閉即恢復原工作流。</p><p>參考尺寸短邊上限 512、最多 1024 tokens，不儲存額外參考檔。先比較同一首幀、提示詞與種子下的開關效果；可能降低動作幅度或帶入場景細節。</p></details>
             <details id="video-advanced" class="creation-help"><summary>進階生成與輸出參數</summary>
               <p>配方切換會重設下列採樣參數。Turbo 步數固定配對 LoRA；修改權重或 shift 可能降低品質，還原配方可復原。</p>
               <div class="parameter-grid">

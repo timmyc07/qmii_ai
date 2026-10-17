@@ -21,7 +21,7 @@ function videoParameters() {
     steps: Number($('video-steps').value), sampler: $('video-sampler').value,
     shift_video: Number($('video-shift-video').value), shift_audio: Number($('video-shift-audio').value),
     crop: $('video-crop').value, resize_method: $('video-resize').value, video_crf: Number($('video-crf').value),
-    video_audio: $('video-audio').checked, identity_prompt: $('video-identity').checked, end_frame: $('video-end-frame').value };
+    video_audio: $('video-audio').checked, identity_prompt: $('video-identity').checked, refmod: $('video-refmod').checked, end_frame: $('video-end-frame').value };
   if (values.video_profile !== 'base') values.lora_strength = Number($('video-lora').value);
   if ($('video-seed').value !== '') values.seed = Number($('video-seed').value);
   return values;
@@ -52,6 +52,7 @@ function loadVideoParameters(values = {}) {
   for (const [id, fallback] of Object.entries(defaults)) $('video-' + id).value = values[keys[id] || id] ?? fallback;
   $('video-audio').checked = values.video_audio ?? true;
   $('video-identity').checked = values.identity_prompt ?? false;
+  $('video-refmod').checked = values.refmod ?? false;
   updateVideoSettings();
 }
 
@@ -141,7 +142,7 @@ function renderSharedJob(job) {
   const origin = job.origin || {};
   const { negative = '', ...parameters } = job.parameters || {};
   const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper 群組', nsfw_adv: 'NSFW Adv 群組', h3_image: '圖片生影片' };
-  const endLabel = job.status === 'failed' ? '失敗' : '完成';
+  const endLabel = job.status === 'cancelled' ? '終止' : job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
     <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span></div>
     <p class="job-meta">提交：${escapeHtml(jobTime(job.created))}<br>開始：${escapeHtml(job.started ? jobTime(job.started) : '尚未開始／未記錄')} · ${endLabel}：${escapeHtml(job.finished ? jobTime(job.finished) : '尚未結束／未記錄')}</p>
@@ -268,6 +269,7 @@ function setCreationOpen(open) {
 
 function renderWorkflow() {
   renderParameters();
+  $('image-refmod-help').textContent = `${state.workflow === 'nsfw_adv' ? '此模式使用 Qwen Image FP8' : '此模式使用 Qwen Image 2.1'}；RefMod 僅支援 H3 的參考條件，無法直接套用。`;
   $('workflow-help').textContent = state.workflow === 'reference'
     ? '上傳 2～4 張圖片，由 Qwen Image Turbo 融合參考生成一張作品。'
     : state.workflow === 'superduper'
@@ -540,6 +542,10 @@ function appendUserMessage(text, images) {
 
 function setBusy(value) {
   state.generating = value; $('send').disabled = value; $('upload-images').disabled = value;
+  state.currentJobId = null; state.cancelling = false;
+  $('cancel-generation').classList.toggle('hidden', !value);
+  $('cancel-generation').disabled = true;
+  $('cancel-generation').textContent = '■ 強制終止';
   $('video-last-upload').disabled = value;
   $('workflow-mode').disabled = value;
   $('workflow-trigger').disabled = value;
@@ -615,6 +621,7 @@ async function chooseImages() {
 
 listen('generation-progress', event => {
   const data = event.payload;
+  if (data.jobId) { state.currentJobId = data.jobId; $('cancel-generation').disabled = state.cancelling; }
   const result = data.video || data.image;
   const target = state.resultTarget || feed;
   if (result) {
@@ -678,6 +685,12 @@ async function init() {
   $('open-output').onclick = async () => { try { await invoke('open_output_folder'); } catch (e) { toast(`無法開啟作品集：${e}`); } };
   $('upload-images').onclick = chooseImages;
   $('send').onclick = submitPrompt;
+  $('cancel-generation').onclick = async () => {
+    if (!state.currentJobId || state.cancelling) return;
+    state.cancelling = true; $('cancel-generation').disabled = true; $('cancel-generation').textContent = '終止中…';
+    try { await invoke('cancel_generation', { jobId: state.currentJobId }); }
+    catch (error) { state.cancelling = false; $('cancel-generation').disabled = false; $('cancel-generation').textContent = '■ 強制終止'; toast(`無法終止：${error}`); }
+  };
   setupWorkflowPicker();
   $('creation-toggle').onclick = () => setCreationOpen(!$('app-shell').classList.contains('creation-open'));
   $('creation-close').onclick = () => setCreationOpen(false);

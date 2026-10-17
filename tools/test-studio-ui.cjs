@@ -7,11 +7,17 @@ const { chromium } = require('playwright');
 (async () => {
   const root = path.join(__dirname, '..', 'mobile', 'static');
   const submissions = [];
+  const jobs = [];
+  const cancelled = [];
   let settings = { presets: [], preciseMode: false, generation: {}, revision: '' };
   const server = http.createServer((request, response) => {
     const reply = value => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(value)); };
     if (request.url === '/api/session') return reply({ csrf: 'test', ...settings });
-    if (request.url === '/api/jobs' && request.method === 'GET') return reply({ jobs: [] });
+    if (request.url === '/api/jobs' && request.method === 'GET') return reply({ jobs });
+    if (/^\/api\/jobs\/[^/]+\/cancel$/.test(request.url)) {
+      const id = request.url.split('/')[3]; cancelled.push(id);
+      const job = jobs.find(job => job.id === id); job.status = 'cancelled'; job.message = '任務已終止'; reply(job); return;
+    }
     if (request.url === '/api/settings') {
       if (request.method === 'PUT') {
         let body = ''; request.on('data', value => body += value); request.on('end', () => { settings = { ...JSON.parse(body), revision: 'saved' }; reply(settings); }); return;
@@ -22,7 +28,9 @@ const { chromium } = require('playwright');
     if (request.url === '/api/jobs' && request.method === 'POST') {
       let body = ''; request.on('data', value => body += value); request.on('end', () => {
         const value = JSON.parse(body); submissions.push(value);
-        reply({ id: value.request_id, ...value, media_type: 'image', sources: [], created: 1, status: 'queued', message: '已排隊', results: [] });
+        jobs.forEach(job => { job.status = 'completed'; });
+        const job = { id: value.request_id, ...value, media_type: 'image', sources: [], created: 1, status: 'running', message: '正在生成', result_files: [], results: [] };
+        jobs.push(job); reply(job);
       }); return;
     }
     const file = request.url === '/' ? 'index.html' : request.url.replace('/static/', '');
@@ -40,6 +48,7 @@ const { chromium } = require('playwright');
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
     assert.equal(await page.locator('#workflow option').count(), 4);
+    assert.equal(await page.locator('#image-refmod').isDisabled(), true);
     assert.equal(await page.locator('#generation-parameters [data-parameter]').count(), 5);
     assert.match(await page.locator('#generation-parameters').textContent(), /調高.*調低/s);
     await page.selectOption('#workflow', 'superduper');
@@ -88,6 +97,11 @@ const { chromium } = require('playwright');
     await page.locator('#presets .preset-row button').first().click();
     await page.waitForFunction(() => !document.querySelector('#send').disabled);
     assert.equal(submissions.at(-1).parameters.negative, '');
+    assert.equal(await page.locator('#cancel-generation').isVisible(), true);
+    const lastId = submissions.at(-1).request_id;
+    await page.click('#cancel-generation');
+    await page.waitForSelector('#cancel-generation', { state: 'hidden' });
+    assert.equal(cancelled.at(-1), lastId);
     for (const width of [1280, 390, 360]) {
       await page.setViewportSize({ width, height: 820 }); await page.waitForTimeout(350);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

@@ -47,6 +47,7 @@ struct Settings {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Progress {
+    job_id: Option<String>,
     index: usize,
     total: usize,
     message: String,
@@ -146,6 +147,18 @@ async fn studio_jobs() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn cancel_generation(job_id: String) -> Result<(), String> {
+    if job_id.len() != 32 || !job_id.bytes().all(|value| value.is_ascii_hexdigit()) {
+        return Err("找不到任務。".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        bridge("cancel", serde_json::json!({"job_id": job_id}), None).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn open_output_folder() -> Result<(), String> {
     fs::create_dir_all(OUTPUT_ROOT).map_err(|e| e.to_string())?;
     Command::new("explorer.exe")
@@ -234,6 +247,7 @@ fn main() {
             mobile_connection::start_mobile,
             mobile_connection::stop_mobile,
             generate_images,
+            cancel_generation,
             studio_jobs,
             window_minimize,
             window_toggle_maximize,

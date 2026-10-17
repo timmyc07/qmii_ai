@@ -6,6 +6,7 @@ import secrets
 import subprocess
 
 from .gpu import gpu_lock
+from .cancellation import run_process, task_scope
 from .parameters import validate_parameters, validate_h3_sources
 
 LOG = logging.getLogger('qianmi.mobile')
@@ -27,7 +28,8 @@ def generate(payload, sources, output_dir, progress):
         return (params['seed'] + index) % 9007199254740992 if 'seed' in params else secrets.randbelow(2**53)
 
     progress('等待電腦可用…')
-    with gpu_lock():
+    control = payload.get('_control')
+    with gpu_lock(check=control.check if control else None), task_scope(control):
         prompt = payload['prompt']
         if workflow == 'h3_image':
             from .h3 import ComfyWorkflowError, run
@@ -124,7 +126,7 @@ def run_turbo(prompt, sources, output, seed, parameters=None):
         for source in sources:
             args += ['-r', str(source)]
     try:
-        result = subprocess.run(args, cwd=TURBO, capture_output=True, timeout=1200, creationflags=FLAGS)
+        result = run_process(args, cwd=TURBO, timeout=1200, creationflags=FLAGS)
         if result.returncode:
             LOG.error('Turbo failed exit=%s', result.returncode)
             raise RuntimeError('快速生成失敗，請檢查電腦上的模型與顯示卡。')

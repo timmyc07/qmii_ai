@@ -32,6 +32,7 @@ class Parameters(BaseModel):
     video_crf: int | None = Field(default=None, ge=0, le=51)
     end_frame: Literal['none', 'first', 'custom'] | None = None
     identity_prompt: bool | None = Field(default=None, strict=True)
+    refmod: bool | None = Field(default=None, strict=True)
 
 
 def validate_parameters(value, workflow=None):
@@ -39,7 +40,7 @@ def validate_parameters(value, workflow=None):
     if workflow == 'h3_image':
         allowed = {'width', 'height', 'duration', 'seed', 'video_profile', 'steps', 'sampler',
                    'shift_video', 'shift_audio', 'lora_strength', 'resize_method', 'crop',
-                   'video_audio', 'video_crf', 'end_frame', 'identity_prompt'}
+                   'video_audio', 'video_crf', 'end_frame', 'identity_prompt', 'refmod'}
         if set(result) - allowed:
             raise ValueError('H3 使用 CFG 蒸餾模型與完整去噪，請移除 CFG、負面提示詞與圖片重繪參數。')
         profile = result.get('video_profile', 'turbo4')
@@ -51,6 +52,8 @@ def validate_parameters(value, workflow=None):
         width, height = result.get('width', 512), result.get('height', 896)
         if max(width, height) > 1344 or min(width, height) > 768:
             raise ValueError('H3 尺寸短邊最多 768、長邊最多 1344，且須為 32 的倍數。')
+    elif 'refmod' in result:
+        raise ValueError('RefMod 僅支援 MiniMax H3，無法套用到 Qwen 圖片模型。')
     elif set(result) & {'duration', 'video_profile', 'sampler', 'shift_video', 'shift_audio',
                         'resize_method', 'crop', 'video_audio', 'video_crf', 'end_frame', 'identity_prompt'}:
         raise ValueError('影片參數僅適用於圖片生影片模式。')

@@ -26,6 +26,7 @@ const { chromium } = require('playwright');
           if (name === 'load_settings') return { presets: [], preciseMode: false, generation: {}, revision: '' };
           if (name === 'save_settings') { window.testSavedSettings = value.settings; return { ...value.settings, revision: 'saved' }; }
           if (name === 'generate_images') { window.testGenerations.push(value); return; }
+          if (name === 'cancel_generation') { window.testCancelled = value.jobId; return; }
           if (name === 'mobile_status') return { running: false, registered: false, url: '', code: '', message: '' };
           if (name === 'studio_jobs') return { jobs: [] };
         } },
@@ -51,15 +52,24 @@ const { chromium } = require('playwright');
     await page.click('#workflow-trigger'); await page.click('[data-value="quick"]');
     await page.fill('#prompt', '柔和花園'); await page.click('#send');
     assert.equal((await page.evaluate(() => window.testGenerations.at(-1))).workflow, 'quick');
+    await page.evaluate(() => window.testProgress({ payload: { jobId: 'a'.repeat(32), done: false, message: '正在生成' } }));
     for (const width of [1280, 390, 360]) {
       await page.setViewportSize({ width, height: 820 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.equal(await page.locator('#cancel-generation').isVisible(), true);
     }
+    await page.click('#cancel-generation');
+    assert.equal(await page.evaluate(() => window.testCancelled), 'a'.repeat(32));
+    assert.equal(await page.locator('#cancel-generation').isDisabled(), true);
+    await page.evaluate(() => window.testProgress({ payload: { done: true, message: '任務已終止' } }));
+    assert.equal(await page.locator('#cancel-generation').isVisible(), false);
     await page.setViewportSize({ width: 1280, height: 820 });
     for (const workflow of ['quick', 'reference', 'superduper', 'nsfw_adv']) {
       await page.reload();
       await page.click('#workflow-trigger'); await page.click(`[data-value="${workflow}"]`);
       assert.equal(await page.locator('#upload-images').isDisabled(), false);
+      assert.equal(await page.locator('#image-refmod').isDisabled(), true);
+      assert.match(await page.locator('#image-refmod-help').innerText(), /Qwen.*RefMod.*H3/);
       await page.evaluate(() => { window.testPickedImages = ['/a.png', '/b.png']; });
       await page.click('#upload-images');
       assert.equal(await page.locator('#image-tray .thumb-wrap').count(), 2);

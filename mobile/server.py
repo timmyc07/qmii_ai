@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .settings import Settings, SettingsStore, source_revision
 from .parameters import Parameters, validate_parameters, validate_h3_sources
+from .cancellation import CancellationFailed, TaskControl
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -131,7 +132,7 @@ class Store:
         with self.connect() as db:
             db.execute("""UPDATE jobs SET status=?,message=?,updated=?,
                           started=CASE WHEN ?='running' THEN COALESCE(started,?) ELSE started END,
-                          finished=CASE WHEN ? IN ('completed','failed') THEN ? ELSE finished END,
+                          finished=CASE WHEN ? IN ('completed','failed','cancelled') THEN ? ELSE finished END,
                           results=COALESCE(?,results) WHERE id=?""",
                        (status, message, now, status, now, status, now,
                         json.dumps(results) if results is not None else None, job_id))
@@ -170,9 +171,9 @@ class Store:
     def cleanup(self):
         cutoff = time.time() - 7 * 86400
         with self.connect() as db:
-            active = {value for row in db.execute("SELECT sources FROM jobs WHERE status IN ('queued','running')")
+            active = {value for row in db.execute("SELECT sources FROM jobs WHERE status IN ('queued','running','cancelling')")
                       for value in json.loads(row['sources'])}
-            active.update(row['last_image'] for row in db.execute("SELECT last_image FROM jobs WHERE status IN ('queued','running')")
+            active.update(row['last_image'] for row in db.execute("SELECT last_image FROM jobs WHERE status IN ('queued','running','cancelling')")
                           if row['last_image'])
             for row in db.execute('SELECT id FROM uploads WHERE created<?', (cutoff,)).fetchall():
                 if row['id'] not in active:
@@ -210,12 +211,18 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     stop = threading.Event()
     wake = threading.Event()
     attempts = []
+    controls = {}
+    control_lock = threading.Lock()
 
     def worker():
         last_cleanup = time.monotonic()
         while not stop.is_set():
-            with store.connect() as db:
-                row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
+            with control_lock:
+                with store.connect() as db:
+                    row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
+                if row:
+                    control = controls[row['id']] = TaskControl()
+                    store.update(row['id'], 'running', '正在準備電腦…')
             if not row:
                 if time.monotonic() - last_cleanup > 3600:
                     try:
@@ -227,31 +234,47 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 wake.clear()
                 continue
             job_id = row['id']
-            store.update(job_id, 'running', '正在準備電腦…')
             LOG.info('Job started id=%s workflow=%s', job_id, row['workflow'])
             try:
                 payload = dict(prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
-                               precise_mode=bool(row['precise_mode']))
+                               precise_mode=bool(row['precise_mode']), _control=control)
                 if row['last_image']:
                     payload['last_image'] = store.state / 'uploads' / f'{row["last_image"]}.png'
                 sources = [store.state / 'uploads' / f'{value}.png' for value in json.loads(row['sources'])]
                 output = store.output / job_id
                 output.mkdir(exist_ok=True)
                 def progress(message, results=None):
-                    store.update(job_id, 'running', message, results)
+                    store.update(job_id, 'cancelling' if control.cancelled.is_set() else 'running', message, results)
+                    control.check()
                 if runner is None:
                     from .generation import generate
                     results = generate(payload, sources, output, progress)
                 else:
                     results = runner(payload, sources, output, progress)
-                store.update(job_id, 'completed', '影片完成，可以播放與下載了。' if row['workflow'].startswith('h3_') else '圖片完成，可以下載了。', results)
-                LOG.info('Job completed id=%s count=%s', job_id, len(results))
+                with control_lock:
+                    cancelled = control.cancelled.is_set()
+                    store.update(job_id, 'cancelled' if cancelled else 'completed',
+                                 '任務已終止，已完成的輸出仍保留。' if cancelled else
+                                 '影片完成，可以播放與下載了。' if row['workflow'].startswith('h3_') else '圖片完成，可以下載了。', results)
+                LOG.info('Job finished id=%s count=%s cancelled=%s', job_id, len(results), cancelled)
             except Exception as exc:
                 # Upstream errors can contain prompts; log only the exception class.
-                LOG.error('Job failed id=%s exception=%s', job_id, type(exc).__name__)
                 from .superduper import ComfyWorkflowError
-                message = str(exc) if isinstance(exc, ComfyWorkflowError) else '生成失敗，請確認電腦的模型服務與顯示卡狀態。'
-                store.update(job_id, 'failed', message)
+                with control_lock:
+                    if isinstance(exc, CancellationFailed):
+                        stop.set()
+                    cancelled = control.cancelled.is_set() and not isinstance(exc, CancellationFailed)
+                    message = '任務已終止，已完成的輸出仍保留。' if cancelled else str(exc) if isinstance(exc, (ComfyWorkflowError, CancellationFailed)) else '生成失敗，請確認電腦的模型服務與顯示卡狀態。'
+                    if isinstance(exc, CancellationFailed):
+                        message += '佇列已停止，請確認模型停止後重新啟動工作室。'
+                    store.update(job_id, 'cancelled' if cancelled else 'failed', message)
+                if cancelled:
+                    LOG.info('Job cancelled id=%s', job_id)
+                else:
+                    LOG.error('Job failed id=%s exception=%s', job_id, type(exc).__name__)
+            finally:
+                with control_lock:
+                    controls.pop(job_id, None)
             try:
                 store.cleanup()
             except OSError:
@@ -260,7 +283,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @asynccontextmanager
     async def lifespan(app):
         with store.connect() as db:
-            db.execute("UPDATE jobs SET status='failed',message='電腦服務已重新啟動，請重新提交。',updated=?,finished=? WHERE status='running'", (time.time(), time.time()))
+            db.execute("UPDATE jobs SET status='failed',message='電腦服務已重新啟動，請重新提交。',updated=?,finished=? WHERE status IN ('running','cancelling')", (time.time(), time.time()))
         store.cleanup()
         thread = threading.Thread(target=worker, daemon=True, name='qianmi-gpu-worker')
         app.state.worker = thread
@@ -400,7 +423,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     async def submit(request: Request):
         store.session(request, mutate=True)
         if stop.is_set():
-            raise HTTPException(503, '電腦正在安全關閉服務，請稍後再試。')
+            raise HTTPException(503, '電腦服務已停止接收任務，請檢查主機狀態後重新連線。')
         value = await parse_json(request, JobInput)
         if not value.prompt.strip():
             raise HTTPException(422, '請輸入提示詞。')
@@ -422,7 +445,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             previous = db.execute('SELECT * FROM jobs WHERE request_id=?', (value.request_id,)).fetchone()
             if previous:
                 return store.public_job(previous)
-            count = db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
+            count = db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','cancelling')").fetchone()[0]
             if count >= 8:
                 raise HTTPException(429, '電腦目前排隊已滿，請稍後再試。')
             for upload_id in value.images + ([value.last_image] if value.last_image else []):
@@ -447,6 +470,18 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
     @app.get('/api/jobs/{job_id}')
     def job(job_id: str, request: Request):
         store.session(request)
+        return store.public_job(store.job(job_id))
+
+    @app.post('/api/jobs/{job_id}/cancel')
+    def cancel_job(job_id: str, request: Request):
+        store.session(request, mutate=True)
+        with control_lock:
+            row = store.job(job_id)
+            if row['status'] == 'queued':
+                store.update(job_id, 'cancelled', '任務已終止，未開始生成。')
+            elif row['status'] in ('running', 'cancelling') and job_id in controls:
+                store.update(job_id, 'cancelling', '正在強制終止，等待模型停止…')
+                controls[job_id].cancelled.set()
         return store.public_job(store.job(job_id))
 
     @app.get('/api/jobs/{job_id}/images/{index}')

@@ -8,12 +8,14 @@ LOCK_PATH = Path(__file__).resolve().parents[1] / '.runtime' / 'gpu-task.lock'
 
 
 @contextlib.contextmanager
-def gpu_lock(timeout=1800, path=None):
+def gpu_lock(timeout=1800, path=None, check=None):
     path = Path(path or LOCK_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a+b') as handle:
         deadline = time.monotonic() + timeout
         while True:
+            if check:
+                check()
             try:
                 handle.seek(0)
                 if os.name == 'nt':

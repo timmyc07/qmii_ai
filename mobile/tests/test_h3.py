@@ -140,7 +140,7 @@ class H3Test(unittest.TestCase):
                     with self.subTest(count=count, mode=mode):
                         sources = [root / f'first{i}.png' for i in range(count)]
                         tail = root / 'last.png' if mode == 'custom' else None
-                        parameters = dict(end_frame=mode, seed=42, duration=6)
+                        parameters = dict(end_frame=mode, seed=42, duration=6, refmod=True)
                         payload = dict(prompt='cat blinks', workflow='h3_image', parameters=parameters, last_image=tail)
                         progress = Mock()
                         graphs = []

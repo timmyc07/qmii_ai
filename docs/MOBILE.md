@@ -67,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File tools\stop-mobile.ps1
 - 桌面版與網頁經同一 API 佇列處理，worker 持有 `.runtime\gpu-task.lock`。
 - 完整提示詞與來源資訊保留在主機任務資料庫，所有已配對設備可查看；生成圖片不嵌入這些資訊。舊任務已清除的提示詞及未記錄的來源無法補回。
 - 完成圖片與任務永久保存，不自動清理；過期 session 與未被待處理任務使用的上傳暫存七天後清理。作品庫涵蓋既有桌面圖片。
-- 目前生成不能從手機取消；關閉手機頁面不會中斷電腦任務。
+- 輸入區的「強制終止」會停止目前執行的工作室任務；若只有排隊任務則取消該項。已完成輸出保留，確認模型停止後才執行下一項；重新載入頁面仍可操作。關閉手機頁面不會中斷電腦任務。
 - 服務崩潰時，執行中的任務重啟後標記失敗；未執行任務保留。請先確認 Turbo 沒有殘留工作再重啟。
 
 ## 本機路徑
@@ -101,4 +101,4 @@ cargo test --manifest-path src-tauri\Cargo.toml
 
 本次使用[Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)，每次重開會變更網址，適合私人試用且沒有可用性保證。固定網址需設定自己的Cloudflare帳號、網域與named tunnel。服務採短輪詢取得進度，符合Quick Tunnel不支援SSE的限制。
 
-生成流程只呼叫本機 `D:\AI\Qwen-Image-2.1-Turbo`，模型與執行檔不提交至本 repo。
+圖片生成依模式使用本機 Turbo CLI 或 ComfyUI Portable，影片模式目前由桌面操作。Qwen 圖片模式的 RefMod 開關停用並標示不相容；H3 開關與安裝方式見 [H3 說明](H3.md)。模型與執行檔不提交至本 repo。

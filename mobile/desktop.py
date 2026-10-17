@@ -100,13 +100,16 @@ def main():
     if action == 'load_settings':
         emit(SettingsStore().read())
         return
-    payload = json.load(sys.stdin) if action in ('save_settings', 'generate') else {}
+    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel') else {}
     if action == 'save_settings':
         emit(SettingsStore().save(payload))
         return
     client = StudioClient()
     client.connect()
     try:
+        if action == 'cancel':
+            emit(client.request('/api/jobs/' + payload['job_id'] + '/cancel', {}, method='POST'))
+            return
         if action == 'jobs':
             value = client.request('/api/jobs')
             for job in value['jobs']:
@@ -136,8 +139,9 @@ def main():
                 emit(dict(index=index + 1, total=total, message='影片完成' if video else '圖片完成', done=False, error=None,
                           image=None if video else path, video=path if video else None))
             seen = len(job['results'])
-            done = job['status'] in ('completed', 'failed')
+            done = job['status'] in ('completed', 'failed', 'cancelled')
             emit(dict(index=seen, total=total, message=job['message'], done=done, image=None,
+                      jobId=job['id'],
                       error=job['message'] if job['status'] == 'failed' else None))
             if done:
                 break

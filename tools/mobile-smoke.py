@@ -39,7 +39,7 @@ with httpx.Client(base_url=url, timeout=30, headers={'Origin': url}) as client:
         if job['message'] != last:
             print(f'{job["status"]}: {job["message"]}', flush=True)
             last = job['message']
-        if job['status'] in ('completed', 'failed'):
+        if job['status'] in ('completed', 'failed', 'cancelled'):
             break
         time.sleep(2)
     assert job['status'] == 'completed', job['message']

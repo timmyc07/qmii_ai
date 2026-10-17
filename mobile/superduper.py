@@ -8,9 +8,11 @@ import socket
 import subprocess
 from tempfile import TemporaryDirectory
 import time
+import uuid
 from urllib.parse import urlencode
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+from .cancellation import CURRENT
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = Path(r'D:\AI\QwenImage21SuperDuper')
@@ -61,11 +63,20 @@ REWIRES = {
 
 
 def request_json(path, payload=None, timeout=10):
+    control = CURRENT.get()
+    if control:
+        control.check()
+        if path == '/prompt':
+            control.prompt_id = str(uuid.uuid4())
+            payload = {**payload, 'prompt_id': control.prompt_id}
     data = json.dumps(payload).encode() if payload is not None else None
     request = Request(URL + path, data=data, headers={'Content-Type': 'application/json'})
     with urlopen(request, timeout=timeout) as response:
         content = response.read()
-        return json.loads(content) if content else {}
+        result = json.loads(content) if content else {}
+    if control:
+        control.check()
+    return result
 
 
 def release_models():

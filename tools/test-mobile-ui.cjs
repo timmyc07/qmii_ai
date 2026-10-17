@@ -36,6 +36,7 @@ const { chromium } = require('playwright');
             if (name === 'load_settings') return { presets: [], preciseMode: false };
             if (name === 'save_settings') return { ...args.settings, revision: 'saved' };
             if (name === 'generate_images') { test.generation = args; return; }
+            if (name === 'cancel_generation') { test.cancelled = args.jobId; return; }
             if (name === 'studio_jobs') return { jobs: [{ id: 'fixture', workflow: 'quick', prompt: '其他設備提交', message: '已排隊', created: 1792000000, started: 1792000001, finished: 1792000010, origin: { platform: 'Windows 桌面', device: '<測試電腦>', user: '小迷', device_id: 'fixture-device' }, results: [] }] };
             if (name === 'mobile_status') {
               if (test.fail) throw new Error('Test status failure');
@@ -117,6 +118,8 @@ const { chromium } = require('playwright');
     assert.equal(await page.locator('#conversation').isVisible(), true);
     assert.equal(await page.locator('.composer-area').isVisible(), true);
     assert.equal(await page.locator('#video-form').isVisible(), true);
+    assert.equal(await page.locator('#video-refmod').isChecked(), false);
+    await page.check('#video-refmod');
     assert.equal(await page.locator('#negative-prompt').isDisabled(), true);
     assert.equal(await page.locator('#negative-prompt').inputValue(), '');
     assert.equal(await page.locator('#negative-label').isVisible(), false);
@@ -149,13 +152,20 @@ const { chromium } = require('playwright');
     assert.equal(submitted.preciseMode, false);
     assert.equal(submitted.parameters.video_profile, 'turbo4');
     assert.equal(submitted.parameters.shift_video, 6);
+    assert.equal(submitted.parameters.refmod, true);
     assert.ok(!('negative' in submitted.parameters));
     assert.equal(await page.locator('#video-results-h3_image .user-message .reference-prompt').count(), 0);
     assert.equal(await page.locator('#video-results-h3_image .user-message img').count(), 1);
+    await page.evaluate(() => window.testMobile.progress({ payload: { jobId: 'a'.repeat(32), index: 0, total: 1, message: '正在生成', done: false } }));
+    assert.equal(await page.locator('#cancel-generation').isVisible(), true);
+    await page.click('#cancel-generation');
+    assert.equal(await page.evaluate(() => window.testMobile.cancelled), 'a'.repeat(32));
+    assert.equal(await page.locator('#cancel-generation').isDisabled(), true);
     await page.click('[data-studio-mode="image"]');
     await page.evaluate(() => window.testMobile.progress({ payload: { video: '/fixture.mp4', index: 1, total: 1, message: '影片完成', done: true } }));
     assert.equal(await page.locator('#video-results-h3_image video[controls]').count(), 1);
     assert.equal(await page.locator('#feed video').count(), 0);
+    assert.equal(await page.locator('#cancel-generation').isVisible(), false);
     await page.click('[data-studio-mode="h3_image"]');
     await page.selectOption('#video-profile', 'turbo8');
     assert.equal(await page.locator('#video-steps').inputValue(), '8');
@@ -225,6 +235,7 @@ const { chromium } = require('playwright');
     await page.click('#video-reset-settings');
     assert.equal(await page.locator('#video-profile').inputValue(), 'turbo4');
     assert.equal(await page.locator('#video-end-frame').inputValue(), 'none');
+    assert.equal(await page.locator('#video-refmod').isChecked(), false);
     await page.locator('#video-advanced summary').click();
     await page.evaluate(() => {
       const target = document.querySelector('#video-results-h3_image');

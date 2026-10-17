@@ -17,6 +17,27 @@ from mobile.server import create_app
 
 
 class DesktopBridgeTest(unittest.TestCase):
+    def test_cancel_bridge_targets_job_and_cancelled_generation_finishes(self):
+        job = dict(id='a' * 32, results=[], result_files=[], status='cancelled', message='任務已終止')
+        for action, payload in [('cancel', {'job_id': job['id']}),
+                                ('generate', dict(prompt='cat', workflow='quick', images=[]))]:
+            with self.subTest(action=action), patch('mobile.desktop.StudioClient') as client_class, \
+                    patch('mobile.desktop.sys.argv', ['mobile.desktop', action]), \
+                    patch('mobile.desktop.sys.stdin', Mock(read=Mock(return_value=json.dumps(payload)))), \
+                    patch('mobile.desktop.emit') as emit:
+                client = client_class.return_value
+                client.request.side_effect = [job, {}]
+                main()
+                if action == 'cancel':
+                    self.assertEqual(client.request.call_args_list[0].args, ('/api/jobs/' + job['id'] + '/cancel', {}))
+                    self.assertEqual(client.request.call_args_list[0].kwargs, {'method': 'POST'})
+                else:
+                    report = emit.call_args.args[0]
+                    self.assertTrue(report['done'])
+                    self.assertIsNone(report['error'])
+                    self.assertEqual(report['jobId'], job['id'])
+                self.assertEqual(client.request.call_args_list[-1].args, ('/api/logout',))
+
     def test_video_bridge_uploads_tail_separately_and_reports_all_results(self):
         with tempfile.TemporaryDirectory() as directory:
             paths = [Path(directory) / f'{index}.png' for index in range(5)]

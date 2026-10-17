@@ -40,6 +40,8 @@
       </details>
       <h2>我的魔法按鈕</h2><div id="presets" class="presets"></div>
       <button id="new-preset" type="button" class="quiet">＋ 新增按鈕</button>
+      <label class="toggle-setting"><input id="image-refmod" type="checkbox" disabled>RefMod 身分參考（不相容）</label>
+      <p class="note">此頁使用 Qwen 圖片模型；RefMod 僅支援 MiniMax H3，請在桌面影片模式使用。</p>
       <details id="parameter-panel"><summary>生成參數</summary><p class="note">留白使用所選工作流配方。</p><div id="generation-parameters" class="parameter-grid"></div><button id="reset-parameters" class="quiet" type="button">還原配方</button></details><h2>精準模式</h2>
       <label class="toggle-setting" for="precise-mode"><input id="precise-mode" type="checkbox"> 保留提示詞原文，僅附加適用的生成規範</label>
       <p class="note">啟用後會先用指定模板整理提示詞，再交給所選生成工作流。</p>
@@ -62,6 +64,7 @@
         <label class="sr-only" for="workflow">工作流</label>
         <select id="workflow"><option value="quick">快速生成</option><option value="reference">多圖參考</option><option value="superduper">SuperDuper 群組</option><option value="nsfw_adv">NSFW Adv 群組</option></select>
         <button id="send" class="primary" type="submit">送出 ↑</button>
+        <button id="cancel-generation" class="quiet hidden" type="button">■ 強制終止</button>
       </div>
       <p class="note">由你的電腦生成 · 完整 Prompt 與來源保留於共用任務</p>
     </form>
