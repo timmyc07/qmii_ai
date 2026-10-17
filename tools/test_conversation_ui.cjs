@@ -20,11 +20,12 @@ const { chromium } = require('playwright');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
+      let settings = { presets: [], preciseMode: false, generation: {}, revision: '' };
       window.testGenerations = [];
       window.__TAURI__ = {
         core: { convertFileSrc: value => value, invoke: async (name, value) => {
-          if (name === 'load_settings') return { presets: [], preciseMode: false, generation: {}, revision: '' };
-          if (name === 'save_settings') { window.testSavedSettings = value.settings; return { ...value.settings, revision: 'saved' }; }
+          if (name === 'load_settings') return structuredClone(settings);
+          if (name === 'save_settings') { window.testSavedSettings = value.settings; settings = structuredClone({ ...value.settings, revision: 'saved' }); return structuredClone(settings); }
           if (name === 'generate_images') { window.testGenerations.push(value); return; }
           if (name === 'cancel_generation') { window.testCancelled = value.jobId; return; }
           if (name === 'mobile_status') return { running: false, registered: false, url: '', code: '', message: '' };

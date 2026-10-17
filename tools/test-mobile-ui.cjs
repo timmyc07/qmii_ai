@@ -25,6 +25,7 @@ const { chromium } = require('playwright');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
+      let settings = { presets: [], preciseMode: false, generation: {}, revision: '' };
       const stopped = { running: false, registered: false, url: '', code: '', message: '手機連線尚未開啟。' };
       window.testMobile = { info: stopped, pending: null, fail: false, calls: [] };
       window.__TAURI__ = {
@@ -33,8 +34,8 @@ const { chromium } = require('playwright');
           invoke: async (name, args) => {
             const test = window.testMobile;
             test.calls.push(name);
-            if (name === 'load_settings') return { presets: [], preciseMode: false };
-            if (name === 'save_settings') return { ...args.settings, revision: 'saved' };
+            if (name === 'load_settings') return structuredClone(settings);
+            if (name === 'save_settings') { settings = structuredClone({ ...args.settings, revision: 'saved' }); return structuredClone(settings); }
             if (name === 'generate_images') { test.generation = args; return; }
             if (name === 'google_drive') {
               if (args.action === 'save') test.drive = args.value;
@@ -345,6 +346,8 @@ const { chromium } = require('playwright');
     await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('高耗能模式預設已儲存'));
     assert.equal(await page.evaluate(() => state.generation.svi_image.seed), 42, 'Seed must survive importing and saving');
     assert.equal(await page.evaluate(() => state.generation.svi_image.negative), 'blur', 'Negative must survive importing and saving');
+    await page.waitForTimeout(5100);
+    assert.equal(await page.locator('#negative-prompt').inputValue(), 'blur', 'Settings polling must preserve the saved negative prompt');
     await page.click('[data-studio-mode="image"]');
     await page.click('[data-studio-mode="svi_image"]');
     assert.equal(await page.locator('#prompt').inputValue(), 'A cat blinks.');
