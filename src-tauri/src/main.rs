@@ -173,6 +173,24 @@ async fn cancel_generation(job_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn google_drive(
+    action: String,
+    value: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let command = match action.as_str() {
+        "status" => "drive_status",
+        "save" => "save_drive",
+        "connect" => "connect_drive",
+        _ => return Err("不支援的 Google Drive 操作。".into()),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        serde_json::from_str(&bridge(command, value, None)?).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn open_output_folder() -> Result<(), String> {
     fs::create_dir_all(OUTPUT_ROOT).map_err(|e| e.to_string())?;
     Command::new("explorer.exe")
@@ -257,6 +275,7 @@ fn main() {
             load_settings,
             save_settings,
             open_output_folder,
+            google_drive,
             mobile_connection::mobile_status,
             mobile_connection::start_mobile,
             mobile_connection::stop_mobile,

@@ -1,4 +1,5 @@
 import io
+from datetime import datetime
 import json
 import sqlite3
 from pathlib import Path
@@ -56,9 +57,10 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertIn('HttpOnly', result.headers['set-cookie'])
         return {**ORIGIN, 'X-Qianmi-CSRF': result.json()['csrf']}
 
-    def job(self, headers, images=None, request_id=None):
+    def job(self, headers, images=None, request_id=None, platform='手機網頁'):
         return self.client.post('/api/jobs', json=dict(prompt='private edit instruction', workflow='quick',
-                                images=images or [], request_id=request_id or __import__('secrets').token_hex(16)), headers=headers)
+                                images=images or [], request_id=request_id or __import__('secrets').token_hex(16),
+                                origin=dict(platform=platform)), headers=headers)
 
     def test_auth_origin_csrf_and_download_guard(self):
         self.assertEqual(self.client.get('/api/jobs').status_code, 401)
@@ -120,6 +122,21 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(self.client.put('/api/settings', json=saved, headers=headers).status_code, 422)
         self.assertEqual(self.client.get('/api/settings').json()['presets'][1]['negative'], '  模糊\n<水印>  ')
 
+    def test_drive_settings_require_auth_csrf_and_valid_folder(self):
+        self.assertEqual(self.client.get('/api/drive').status_code, 401)
+        headers = self.login()
+        value = dict(enabled=False, folder_id='valid_folder_id')
+        self.assertEqual(self.client.put('/api/drive', json=value, headers=ORIGIN).status_code, 403)
+        self.assertEqual(self.client.put('/api/drive', json={**value, 'folder_id': '../private'}, headers=headers).status_code, 422)
+        response = self.client.put('/api/drive', json=value, headers=headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['enabled'])
+        self.assertEqual(self.client.get('/api/drive').json()['folder_id'], value['folder_id'])
+        self.app.state.drive.config.write_text('[qianmi]\ntoken = private-refresh-token\nclient_secret = private-secret\n')
+        result = self.client.get('/api/drive')
+        self.assertTrue(result.json()['connected'])
+        self.assertNotIn('private-', result.text)
+
     def test_library_keeps_old_artwork_and_hides_paths(self):
         path = self.root / 'output' / 'desktop-old.png'
         path.write_bytes(image_bytes())
@@ -153,14 +170,15 @@ class MobileSecurityTest(unittest.TestCase):
     def test_completed_jobs_are_not_deleted_after_seven_days(self):
         store = self.app.state.store
         job_id = 'c' * 32
-        folder = store.output / job_id
-        folder.mkdir()
-        (folder / '0.png').write_bytes(image_bytes())
+        relative = f'2026-10-17/{job_id}_0.png'
+        path = store.output / relative
+        path.parent.mkdir()
+        path.write_bytes(image_bytes())
         with store.connect() as db:
             db.execute('INSERT INTO jobs (id,request_id,status,message,prompt,workflow,sources,results,created,updated) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                       (job_id, 'd' * 32, 'completed', 'done', '', 'quick', '[]', '["0.png"]', 1, 1))
+                       (job_id, 'd' * 32, 'completed', 'done', '', 'quick', '[]', json.dumps([relative]), 1, 1))
         store.cleanup()
-        self.assertTrue((folder / '0.png').exists())
+        self.assertTrue(path.exists())
         self.assertEqual(store.job(job_id)['status'], 'completed')
 
     def test_queue_idempotency_prompt_history_and_recovery(self):
@@ -171,7 +189,7 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(first.json()['prompt'], 'private edit instruction')
         retry = self.job(headers, [upload['id']], 'a' * 32)
         self.assertEqual(first.json()['id'], retry.json()['id'])
-        second = self.job(headers)
+        second = self.job(headers, platform='Windows 桌面')
         self.release.set()
         for _ in range(100):
             result = self.client.get('/api/jobs/' + second.json()['id']).json()
@@ -183,6 +201,13 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertIn('private edit instruction', self.received)
         job = self.client.get('/api/jobs/' + first.json()['id']).json()
         self.assertEqual(job['prompt'], 'private edit instruction')
+        day = datetime.now().strftime('%Y-%m-%d')
+        for completed in (job, result):
+            relative = f'{day}/{completed["id"]}_0.png'
+            self.assertEqual(completed['result_files'], [relative])
+            self.assertEqual((self.root / 'output' / relative).read_bytes(), image_bytes())
+        self.assertEqual(len(list((self.root / 'output' / day).iterdir())), 2)
+        self.assertFalse(any((self.root / 'state' / 'results').iterdir()))
         self.assertEqual(self.client.get(job['results'][0]).status_code, 200)
         other = TestClient(self.app, base_url='http://localhost:8787')
         self.assertEqual(other.get(job['results'][0]).status_code, 401)

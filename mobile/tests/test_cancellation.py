@@ -67,8 +67,8 @@ class CancellationTest(unittest.TestCase):
             control.cancelled.set()
             return io.BytesIO(json.dumps({'prompt_id': identifier}).encode())
 
-        with self.assertRaises(GenerationCancelled), task_scope(control), \
-                patch.object(control, 'finish'), patch('mobile.superduper.urlopen', side_effect=open_request):
+        with self.assertRaises(GenerationCancelled), patch.object(control, 'finish'), \
+                patch('mobile.superduper.urlopen', side_effect=open_request), task_scope(control):
             request_json('/prompt', {'prompt': {}})
         self.assertIsNotNone(control.prompt_id)
 
@@ -119,7 +119,7 @@ class CancellationTest(unittest.TestCase):
                         break
                     time.sleep(.02)
                 self.assertEqual(result['status'], 'cancelled')
-                self.assertEqual(result['result_files'], ['0.png'])
+                self.assertTrue(result['result_files'][0].endswith(f'/{first["id"]}_0.png'))
                 self.assertEqual(client.get(result['results'][0]).status_code, 200)
                 self.assertEqual(client.post('/api/jobs/' + first['id'] + '/cancel', headers=headers).json()['status'], 'cancelled')
                 third = client.post('/api/jobs', json=dict(prompt='next', workflow='quick', request_id='c' * 32), headers=headers).json()

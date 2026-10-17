@@ -12,11 +12,22 @@ import time
 import unittest
 
 import uvicorn
-from mobile.desktop import StudioClient, main
+from mobile.desktop import ROOT, StudioClient, main
 from mobile.server import create_app
 
 
 class DesktopBridgeTest(unittest.TestCase):
+    def test_drive_authorization_stays_local(self):
+        with patch('mobile.desktop.StudioClient') as client, \
+                patch('mobile.desktop.sys.argv', ['mobile.desktop', 'connect_drive']), \
+                patch('mobile.desktop.sys.stdin', Mock(read=Mock(return_value=json.dumps({'path': 'D:/client.json'})))), \
+                patch('mobile.drive.Drive.connect', return_value=dict(connected=True)) as connect, \
+                patch('mobile.desktop.emit') as emit:
+            main()
+        connect.assert_called_once_with('D:/client.json')
+        client.assert_not_called()
+        self.assertTrue(emit.call_args.args[0]['connected'])
+
     def test_lora_import_stays_local_without_starting_studio_service(self):
         with patch('mobile.desktop.StudioClient') as client, \
                 patch('mobile.desktop.sys.argv', ['mobile.desktop', 'import_svi_lora']), \
@@ -57,7 +68,7 @@ class DesktopBridgeTest(unittest.TestCase):
             payload = dict(prompt='cat blinks', workflow='h3_image', images=list(map(str, paths[:4])),
                            last_image=str(paths[4]), parameters=dict(end_frame='custom'))
             job = dict(id='fixture', results=['a', 'b', 'c', 'd'],
-                       result_files=[f'{index}.mp4' for index in range(4)], status='completed', message='影片完成')
+                       result_files=[f'2026-10-17/fixture_{index}.mp4' for index in range(4)], status='completed', message='影片完成')
             with patch('mobile.desktop.StudioClient') as client_class, \
                     patch('mobile.desktop.sys.argv', ['mobile.desktop', 'generate']), \
                     patch('mobile.desktop.sys.stdin', Mock(read=Mock(return_value=json.dumps(payload)))), \
@@ -72,10 +83,19 @@ class DesktopBridgeTest(unittest.TestCase):
             reports = [call.args[0] for call in emit.call_args_list]
             self.assertEqual([report['index'] for report in reports], [1, 2, 3, 4, 4])
             self.assertTrue(all(report['total'] == 4 for report in reports))
-            self.assertTrue(all(report['video'].endswith(f'{index}.mp4') and not report['done']
+            self.assertTrue(all(report['video'] == str(ROOT / 'output' / job['result_files'][index]) and not report['done']
                                 for index, report in enumerate(reports[:4])))
             self.assertTrue(reports[-1]['done'])
             self.assertEqual(client.request.call_args_list[-1].args, ('/api/logout',))
+
+    def test_history_bridge_resolves_daily_paths(self):
+        job = dict(id='fixture', result_files=['2026-10-17/fixture_0.png'])
+        with patch('mobile.desktop.StudioClient') as client_class, \
+                patch('mobile.desktop.sys.argv', ['mobile.desktop', 'jobs']), patch('mobile.desktop.emit') as emit:
+            client_class.return_value.request.side_effect = [dict(jobs=[job]), {}]
+            main()
+        self.assertEqual(emit.call_args.args[0]['jobs'][0]['results'],
+                         [str(ROOT / 'output' / '2026-10-17/fixture_0.png')])
 
     def test_same_api_with_old_code_restarts_local_service(self):
         client = StudioClient()

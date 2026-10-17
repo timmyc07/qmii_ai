@@ -615,6 +615,54 @@ function openMobileConnection() {
   }, 10000);
 }
 
+async function openDrive() {
+  let timer, busy = false;
+  const panel = openModal('Google Drive 自動上傳', `
+    <p class="modal-subtitle">所有平台的圖片與影片依「年-月-日」上傳到同一資料夾，電腦需保持開機與連網。</p>
+    <p id="drive-status" class="settings-tip" role="status" aria-live="polite">正在讀取…</p>
+    <label class="form-field"><span>Google Drive 目標資料夾連結</span><input id="drive-folder" type="url" required placeholder="https://drive.google.com/drive/folders/…"></label>
+    <label><input id="drive-enabled" type="checkbox"> 開啟自動上傳</label>
+    <p class="mobile-help">首次請匯入 Google OAuth「桌面應用程式」JSON，並在瀏覽器登入授權；之後自動上傳，不需每次登入。授權資料只保存在這台電腦。</p>
+    <div class="modal-actions"><button id="drive-connect" class="secondary-button">匯入 JSON 並登入</button><button id="drive-save" class="primary-button">儲存</button></div>`, () => clearInterval(timer));
+  const status = panel.querySelector('#drive-status');
+  const refresh = async (fill = false) => {
+    if (busy) return;
+    try {
+      const info = await invoke('google_drive', { action: 'status', value: {} });
+      status.textContent = info.message + (info.last_success ? ` 上次完成：${new Date(info.last_success * 1000).toLocaleString('zh-TW')}` : '');
+      if (fill) {
+        panel.querySelector('#drive-folder').value = `https://drive.google.com/drive/folders/${info.folder_id}`;
+        panel.querySelector('#drive-enabled').checked = info.enabled;
+      }
+    } catch (error) { status.textContent = String(error); }
+  };
+  panel.querySelector('#drive-save').onclick = async () => {
+    try {
+      const field = panel.querySelector('#drive-folder');
+      if (!field.reportValidity()) return;
+      const url = new URL(field.value);
+      const match = url.pathname.match(/^\/drive\/folders\/([a-zA-Z0-9_-]+)\/?$/);
+      if (url.protocol !== 'https:' || url.hostname !== 'drive.google.com' || !match) throw new Error('請填入 Google Drive 資料夾分享連結。');
+      await invoke('google_drive', { action: 'save', value: { enabled: panel.querySelector('#drive-enabled').checked, folder_id: match[1] } });
+      toast('Google Drive 設定已儲存'); await refresh();
+    } catch (error) { status.textContent = String(error); }
+  };
+  panel.querySelector('#drive-connect').onclick = async event => {
+    if (busy) return;
+    const path = await open({ multiple: false, filters: [{ name: 'Google OAuth JSON', extensions: ['json'] }] });
+    if (!path) return;
+    busy = true; event.currentTarget.disabled = true;
+    status.textContent = '正在準備連線，請在開啟的瀏覽器登入並授權…';
+    try {
+      const info = await invoke('google_drive', { action: 'connect', value: { path } });
+      status.textContent = info.message;
+    } catch (error) { status.textContent = String(error); }
+    finally { busy = false; panel.querySelector('#drive-connect').disabled = false; }
+  };
+  await refresh(true);
+  if (modalRoot.contains(panel)) timer = setInterval(() => refresh(), 5000);
+}
+
 function appendUserMessage(text, images) {
   const node = document.createElement('article'); node.className = 'message user-message';
   if (!images.length) {
@@ -794,6 +842,7 @@ async function init() {
   $('new-preset-shortcut').onclick = () => openPresetEditor();
   $('precise-mode').onclick = togglePreciseMode;
   $('mobile-connection').onclick = openMobileConnection;
+  $('google-drive').onclick = openDrive;
   $('sidebar-collapse').onclick = () => setSidebarCollapsed(true);
   $('sidebar-toggle').onclick = () => {
     if (window.matchMedia('(max-width: 48rem)').matches) setSidebarOpen(!$('app-shell').classList.contains('sidebar-open'));

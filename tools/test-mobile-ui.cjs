@@ -36,6 +36,11 @@ const { chromium } = require('playwright');
             if (name === 'load_settings') return { presets: [], preciseMode: false };
             if (name === 'save_settings') return { ...args.settings, revision: 'saved' };
             if (name === 'generate_images') { test.generation = args; return; }
+            if (name === 'google_drive') {
+              if (args.action === 'save') test.drive = args.value;
+              if (args.action === 'connect') { test.oauthPath = args.value.path; return { connected: true, message: '授權完成' }; }
+              return { enabled: true, folder_id: '1LQUNBvxtG6ONE7hAO_s8m6l5eicsRlza', message: '等待 Google Drive 授權。', ...test.drive };
+            }
             if (name === 'import_svi_lora') {
               test.importPath = args.path;
               if (test.deferImport) await new Promise(resolve => { test.finishImport = resolve; });
@@ -391,6 +396,26 @@ const { chromium } = require('playwright');
     assert.equal(await page.locator('#video-results-svi_image .user-message').innerText(), '');
     assert.equal(await page.locator('#video-results-svi_image .user-message img').count(), 1);
     assert.equal(await page.locator('#send').isDisabled(), false);
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.evaluate(() => document.querySelector('#google-drive').click());
+    await page.waitForFunction(() => document.querySelector('#drive-folder').value.includes('1LQUNB'));
+    assert.match(await page.locator('#drive-status').innerText(), /等待.*授權/);
+    await page.fill('#drive-folder', 'https://example.com/drive/folders/valid_folder_id');
+    await page.click('#drive-save');
+    assert.match(await page.locator('#drive-status').innerText(), /分享連結/);
+    await page.fill('#drive-folder', 'https://drive.google.com/drive/folders/valid_folder_id?usp=sharing');
+    await page.uncheck('#drive-enabled');
+    await page.click('#drive-save');
+    assert.deepEqual(await page.evaluate(() => window.testMobile.drive), { enabled: false, folder_id: 'valid_folder_id' });
+    await page.evaluate(() => { window.testMobile.openPath = 'D:/client.json'; });
+    await page.click('#drive-connect');
+    await page.waitForFunction(() => window.testMobile.oauthPath === 'D:/client.json');
+    for (const width of [1280, 390, 360]) {
+      await page.setViewportSize({ width, height: 820 });
+      assert.equal(await page.locator('.modal').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+      await page.screenshot({ path: path.join(__dirname, `../.runtime/drive-${width}.png`), fullPage: true });
+    }
+    await page.keyboard.press('Escape');
     assert.deepEqual(errors, []);
     console.log('UI passed: HIGH/LOW local LoRA selection, independent weights/clear, saved defaults, three ordered prompts with image-only messages, cleanup progress and responsive 1280/390/360.');
   } finally {

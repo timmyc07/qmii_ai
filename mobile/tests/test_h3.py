@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from datetime import datetime
 import io
 import json
 from pathlib import Path
@@ -57,7 +58,7 @@ class H3Test(unittest.TestCase):
                     if result['status'] == 'completed':
                         break
                     __import__('time').sleep(.02)
-                self.assertEqual(result['result_files'], ['0.mp4'])
+                self.assertEqual(result['result_files'], [f'{datetime.now():%Y-%m-%d}/{result["id"]}_0.mp4'])
                 response = client.get(result['results'][0], headers={'Range': 'bytes=2-5'})
                 self.assertEqual(response.status_code, 206)
                 self.assertEqual(response.headers['content-type'], 'video/mp4')
@@ -224,7 +225,7 @@ class H3Test(unittest.TestCase):
                         self.assertTrue(second_started.wait(5))
                         partial = client.get('/api/jobs/' + job['id']).json()
                         self.assertEqual(partial['status'], 'running')
-                        self.assertEqual(partial['result_files'], ['0.mp4'])
+                        self.assertEqual(partial['result_files'], [f'{datetime.now():%Y-%m-%d}/{job["id"]}_0.mp4'])
                         self.assertIn('2/4', partial['message'])
                         self.assertEqual(client.get(partial['results'][0]).content, b'completed video')
                     finally:
@@ -238,7 +239,7 @@ class H3Test(unittest.TestCase):
                     self.assertIn('第 2/4 支', result['message'])
                     self.assertIn('已保留 1 支', result['message'])
                     self.assertNotIn('private upstream prompt', result['message'])
-                    self.assertEqual(result['result_files'], ['0.mp4'])
+                    self.assertEqual(result['result_files'], partial['result_files'])
                     self.assertEqual(client.get(result['results'][0]).content, b'completed video')
                     expected_tail = root / 'state/uploads' / f'{images[4]}.png'
                     self.assertEqual(calls, [(root / 'state/uploads' / f'{image}.png', expected_tail) for image in images[:2]])

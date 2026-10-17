@@ -76,7 +76,7 @@ powershell -ExecutionPolicy Bypass -File tools\stop-mobile.ps1
 - 前端：`mobile\static\`
 - 登入碼、SQLite、日誌、程序紀錄：`.runtime\mobile\`
 - 圖片上傳：`.runtime\mobile\uploads\`
-- 完成圖片：`output\mobile\`
+- 完成圖片與影片：`output\年-月-日\`（例如 `output\2026-10-17\`），所有平台共用，檔名為 `<任務編號>_<序號>.png` 或 `.mp4`。
 - 測試圖片：`output\mobile-quick-smoke.png`、`output\mobile-reference-smoke.png`
 
 runtime、密碼、圖片、日誌與編譯產物均由Git排除。

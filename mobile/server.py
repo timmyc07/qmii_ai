@@ -1,5 +1,6 @@
 """Single-owner, authenticated HTTP gateway for the local GPU workstation."""
 from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime
 import hashlib
 import hmac
 import io
@@ -25,6 +26,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .settings import Settings, SettingsStore, source_revision
 from .parameters import Parameters, validate_parameters, validate_h3_sources, validate_svi_sources
 from .cancellation import CancellationFailed, TaskControl
+from .drive import Drive, DriveSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
@@ -116,6 +118,39 @@ class Store:
                         db.execute("""UPDATE jobs SET last_image=json_extract(sources,'$[1]'),
                                       sources=json_remove(sources,'$[1]') WHERE workflow='h3_image'
                                       AND json_extract(parameters,'$.end_frame')='custom'""")
+            if db.execute('PRAGMA user_version').fetchone()[0] < 1:
+                for row in db.execute('SELECT * FROM jobs').fetchall():
+                    directory = self.output / 'mobile' / row['id']
+                    if not directory.is_dir():
+                        directory = self.output / row['id']
+                    day = datetime.fromtimestamp(row['started'] or row['created'] or time.time()).strftime('%Y-%m-%d')
+                    results = self.publish_results(row['id'], directory, json.loads(row['results']), day, {})
+                    db.execute('UPDATE jobs SET results=? WHERE id=?', (json.dumps(results), row['id']))
+                    if directory.is_dir() and not any(directory.iterdir()):
+                        directory.rmdir()
+                legacy = self.output / 'mobile'
+                if legacy.is_dir() and not any(legacy.iterdir()):
+                    legacy.rmdir()
+                db.execute('PRAGMA user_version=1')
+
+    def publish_results(self, job_id, directory, results, day, published):
+        paths = []
+        for name in results:
+            if Path(name).name != name:
+                raise ValueError('輸出檔名無效。')
+            if name in published:
+                paths.append(published[name])
+                continue
+            relative = f'{day}/{job_id}_{name}'
+            source, target = directory / name, self.output / relative
+            if source.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    raise FileExistsError('輸出檔案已存在，拒絕覆蓋。')
+                source.rename(target)
+            published[name] = relative
+            paths.append(relative)
+        return paths
 
     @contextmanager
     def connect(self):
@@ -186,7 +221,8 @@ class Store:
 
 def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, settings_path=None, library_dir=None):
     revision = source_revision()
-    store = Store(state_dir or ROOT / '.runtime' / 'mobile', output_dir or ROOT / 'output' / 'mobile')
+    store = Store(state_dir or ROOT / '.runtime' / 'mobile', output_dir or ROOT / 'output')
+    drive = Drive(store.state, store.output)
     settings = SettingsStore(settings_path)
     library = Path(library_dir or (ROOT / 'output' if output_dir is None else output_dir)).resolve()
 
@@ -234,6 +270,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 wake.clear()
                 continue
             job_id = row['id']
+            output = store.state / 'results' / job_id
+            published = {}
             LOG.info('Job started id=%s workflow=%s', job_id, row['workflow'])
             try:
                 payload = dict(prompt=row['prompt'], workflow=row['workflow'], parameters=json.loads(row['parameters']),
@@ -241,16 +279,21 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
                 if row['last_image']:
                     payload['last_image'] = store.state / 'uploads' / f'{row["last_image"]}.png'
                 sources = [store.state / 'uploads' / f'{value}.png' for value in json.loads(row['sources'])]
-                output = store.output / job_id
-                output.mkdir(exist_ok=True)
+                output.mkdir(parents=True, exist_ok=True)
                 def progress(message, results=None):
+                    if results is not None:
+                        results = store.publish_results(job_id, output, results, datetime.now().strftime('%Y-%m-%d'), published)
                     store.update(job_id, 'cancelling' if control.cancelled.is_set() else 'running', message, results)
+                    if results:
+                        drive.wake.set()
                     control.check()
                 if runner is None:
                     from .generation import generate
                     results = generate(payload, sources, output, progress)
                 else:
                     results = runner(payload, sources, output, progress)
+                results = store.publish_results(job_id, output, results, datetime.now().strftime('%Y-%m-%d'), published)
+                drive.wake.set()
                 with control_lock:
                     cancelled = control.cancelled.is_set()
                     store.update(job_id, 'cancelled' if cancelled else 'completed',
@@ -276,6 +319,8 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             finally:
                 with control_lock:
                     controls.pop(job_id, None)
+                if output.is_dir() and not any(output.iterdir()):
+                    output.rmdir()
             try:
                 store.cleanup()
             except OSError:
@@ -289,15 +334,20 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         thread = threading.Thread(target=worker, daemon=True, name='qianmi-gpu-worker')
         app.state.worker = thread
         thread.start()
+        upload_thread = threading.Thread(target=drive.run, args=(stop,), daemon=True, name='qianmi-drive-upload')
+        upload_thread.start()
         LOG.info('Mobile service ready')
         yield
         stop.set()
         wake.set()
+        drive.wake.set()
         thread.join()
+        upload_thread.join()
         LOG.info('Mobile service stopped')
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
+    app.state.drive = drive
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)
 
     @app.middleware('http')
@@ -352,6 +402,17 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             return settings.save(value.model_dump())
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from None
+
+    @app.get('/api/drive')
+    def drive_status(request: Request):
+        store.session(request)
+        return drive.status()
+
+    @app.put('/api/drive')
+    async def save_drive(request: Request):
+        store.session(request, mutate=True)
+        value = await parse_json(request, DriveSettings)
+        return drive.save(value)
 
     @app.get('/api/library')
     def list_library(request: Request, offset: int = 0):
@@ -498,7 +559,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
         results = json.loads(row['results'])
         if not 0 <= index < len(results):
             raise HTTPException(404, '圖片尚未完成。')
-        path = store.output / job_id / results[index]
+        path = store.output / results[index]
         return FileResponse(path, media_type='video/mp4' if path.suffix == '.mp4' else 'image/png', filename=f'千迷AI-{job_id[:8]}-{index + 1}{path.suffix}',
                             content_disposition_type='inline')
 
@@ -513,6 +574,7 @@ def create_app(state_dir=None, output_dir=None, runner=None, public_url=None, se
             raise HTTPException(403, '不允許此操作。')
         stop.set()
         wake.set()
+        drive.wake.set()
         shutdown = getattr(app.state, 'request_shutdown', None)
         if shutdown and not getattr(app.state, 'shutdown_started', False):
             app.state.shutdown_started = True

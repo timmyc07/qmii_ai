@@ -100,7 +100,7 @@ def main():
     if action == 'load_settings':
         emit(SettingsStore().read())
         return
-    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel', 'import_svi_lora') else {}
+    payload = json.load(sys.stdin) if action in ('save_settings', 'generate', 'cancel', 'import_svi_lora', 'connect_drive', 'save_drive') else {}
     if action == 'save_settings':
         emit(SettingsStore().save(payload))
         return
@@ -108,16 +108,24 @@ def main():
         from .svi import import_lora
         emit({'name': import_lora(payload['path'])})
         return
+    if action == 'connect_drive':
+        from .drive import Drive
+        emit(Drive(ROOT / '.runtime/mobile', ROOT / 'output').connect(payload['path']))
+        return
     client = StudioClient()
     client.connect()
     try:
+        if action in ('drive_status', 'save_drive'):
+            emit(client.request('/api/drive', payload if action == 'save_drive' else None,
+                                method='PUT' if action == 'save_drive' else 'GET'))
+            return
         if action == 'cancel':
             emit(client.request('/api/jobs/' + payload['job_id'] + '/cancel', {}, method='POST'))
             return
         if action == 'jobs':
             value = client.request('/api/jobs')
             for job in value['jobs']:
-                job['results'] = [str(ROOT / 'output' / 'mobile' / job['id'] / name) for name in job['result_files']]
+                job['results'] = [str(ROOT / 'output' / name) for name in job['result_files']]
             emit(value)
             return
         images = []
@@ -139,7 +147,7 @@ def main():
             for index in range(seen, len(job['results'])):
                 name = job['result_files'][index]
                 video = name.endswith('.mp4')
-                path = str(ROOT / 'output' / 'mobile' / job['id'] / name)
+                path = str(ROOT / 'output' / name)
                 emit(dict(index=index + 1, total=total, message='影片完成' if video else '圖片完成', done=False, error=None,
                           image=None if video else path, video=path if video else None))
             seen = len(job['results'])
