@@ -121,7 +121,8 @@ class H3Test(unittest.TestCase):
         self.assertEqual(h3.conditioning_prompt({}, 'original prompt'), 'original prompt')
         for invalid in (dict(video_profile='turbo8', steps=4), dict(video_profile='base', steps=8),
                         dict(video_profile='base', lora_strength=1), dict(shift_audio=float('nan')),
-                        dict(video_audio='false'), dict(video_crf=52), dict(sampler='unknown'), dict(cfg=2), dict(denoise=.5)):
+                        dict(video_audio='false'), dict(video_crf=52), dict(sampler='unknown'), dict(cfg=2),
+                        dict(denoise=.5), dict(negative='blur'), dict(negative='')):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 validate_parameters(invalid, 'h3_image')
         with self.assertRaises(ValueError):

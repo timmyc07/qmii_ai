@@ -182,7 +182,7 @@ def compile_workflow(parameters, prompt, seed, image=None):
     split = max(1, min(steps - 1, round(steps * 23 / 40)))
     graph['62']['inputs'].update(width=width, height=height, batch_size=1)
     graph['82']['inputs']['prompt'] = prompt if 'STZK' in prompt else f'STZK, {prompt}'
-    if parameters.get('negative'):
+    if 'negative' in parameters:
         graph['82']['inputs']['negative_prompt'] = parameters['negative']
     graph['90']['inputs']['seed'] = seed
     graph['88']['inputs'].update(steps=steps, end_at_step=split)

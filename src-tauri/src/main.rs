@@ -23,6 +23,8 @@ struct Preset {
     id: String,
     name: String,
     prompt: String,
+    #[serde(default)]
+    negative: String,
 }
 
 fn default_preset_id() -> String {
@@ -244,7 +246,20 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::Settings;
+    use super::{Preset, Settings};
+
+    #[test]
+    fn preset_preserves_separate_negative_prompt() {
+        let mut preset: Preset = serde_json::from_value(serde_json::json!({
+            "id": "one", "name": "花園", "prompt": "正向描述"
+        }))
+        .unwrap();
+        assert_eq!(preset.negative, "");
+        preset.negative = "模糊\n<水印>".into();
+        let value = serde_json::to_value(preset).unwrap();
+        assert_eq!(value["prompt"], "正向描述");
+        assert_eq!(value["negative"], "模糊\n<水印>");
+    }
 
     #[test]
     fn settings_uses_current_shared_fields() {

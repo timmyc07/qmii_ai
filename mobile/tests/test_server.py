@@ -103,7 +103,8 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(self.client.get('/api/settings').status_code, 401)
         headers = self.login()
         value = self.client.get('/api/settings').json()
-        value.update(preciseMode=True, presets=[dict(id='one', name='測試', prompt='花園')],
+        value.update(preciseMode=True, presets=[dict(id='one', name='測試', prompt='花園'),
+                                              dict(id='two', name='正負分欄', prompt='花園', negative='  模糊\n<水印>  ')],
                      generation={'quick': {'width': 768, 'height': 1344, 'negative': '模糊'}})
         self.assertEqual(self.client.put('/api/settings', json=value, headers=ORIGIN).status_code, 403)
         result = self.client.put('/api/settings', json=value, headers=headers)
@@ -112,6 +113,12 @@ class MobileSecurityTest(unittest.TestCase):
         self.assertEqual(result.json()['generation']['quick']['height'], 1344)
         self.assertEqual(self.client.put('/api/settings', json=value, headers=headers).status_code, 409)
         self.assertEqual(self.client.get('/api/settings').json()['presets'][0]['name'], '測試')
+        saved = self.client.get('/api/settings').json()
+        self.assertEqual(saved['presets'][0]['negative'], '')
+        self.assertEqual(saved['presets'][1]['negative'], '  模糊\n<水印>  ')
+        saved['presets'][1]['negative'] = 'x' * 4001
+        self.assertEqual(self.client.put('/api/settings', json=saved, headers=headers).status_code, 422)
+        self.assertEqual(self.client.get('/api/settings').json()['presets'][1]['negative'], '  模糊\n<水印>  ')
 
     def test_library_keeps_old_artwork_and_hides_paths(self):
         path = self.root / 'output' / 'desktop-old.png'

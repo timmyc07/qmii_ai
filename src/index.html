@@ -48,7 +48,10 @@
         <button id="latest-message" class="latest-message hidden" type="button">↓ 回到最新</button>
         <div id="image-tray" class="image-tray hidden"></div>
         <div class="composer-shell">
-          <textarea id="prompt" rows="2" placeholder="寫下你的靈感，或先上傳一張圖片…"></textarea>
+          <label for="prompt" class="prompt-label">正向提示詞</label>
+          <textarea id="prompt" rows="2" maxlength="8000" placeholder="描述希望生成的內容…"></textarea>
+          <label for="negative-prompt" id="negative-label" class="prompt-label">負面提示詞</label>
+          <textarea id="negative-prompt" rows="1" maxlength="4000" placeholder="描述不希望出現的內容，可留白…"></textarea>
           <div class="composer-tools"><div class="composer-left"><button id="upload-images" class="upload-button"><span class="upload-icon">＋</span><span>上傳圖片</span></button><span id="batch-label" class="batch-label"></span></div><div class="composer-right"><button id="send" class="send-button" title="開始創作"><span>↑</span></button></div></div>
         </div>
         <p class="composer-note">♡ 圖片都留在你的電腦裡　·　原圖不會被覆蓋</p>

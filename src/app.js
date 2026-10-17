@@ -139,13 +139,14 @@ function jobTime(value) {
 
 function renderSharedJob(job) {
   const origin = job.origin || {};
+  const { negative = '', ...parameters } = job.parameters || {};
   const workflows = { quick: '快速生成', reference: '多圖參考', superduper: 'SuperDuper 群組', nsfw_adv: 'NSFW Adv 群組', h3_image: '圖片生影片' };
   const endLabel = job.status === 'failed' ? '失敗' : '完成';
   return `<article class="shared-job">
     <div class="shared-job-heading"><b>${escapeHtml(workflows[job.workflow] || job.workflow)}</b><span>${escapeHtml(job.message)}</span></div>
     <p class="job-meta">提交：${escapeHtml(jobTime(job.created))}<br>開始：${escapeHtml(job.started ? jobTime(job.started) : '尚未開始／未記錄')} · ${endLabel}：${escapeHtml(job.finished ? jobTime(job.finished) : '尚未結束／未記錄')}</p>
     <dl class="job-origin"><dt>平台</dt><dd>${escapeHtml(origin.platform || '未記錄')}</dd><dt>設備</dt><dd>${escapeHtml(origin.device || '未記錄')}</dd><dt>使用者（來源回報）</dt><dd>${escapeHtml(origin.user || '未記錄')}</dd><dt>設備識別碼</dt><dd>${escapeHtml(origin.device_id || '未記錄')}</dd><dt>任務編號</dt><dd>${escapeHtml(job.id)}</dd></dl>
-    <p class="job-meta">參數：${escapeHtml(JSON.stringify(job.parameters || {}))}</p><details data-job="${escapeHtml(job.id)}"><summary>查看完整 Prompt</summary><p class="job-prompt">${escapeHtml(job.prompt || '此舊任務未保留提示詞。')}</p></details>
+    <p class="job-meta">參數：${escapeHtml(JSON.stringify(parameters))}</p><details data-job="${escapeHtml(job.id)}"><summary>查看${job.workflow === 'h3_image' ? '完整提示詞' : '正向／負面提示詞'}</summary><b>正向提示詞</b><p class="job-prompt">${escapeHtml(job.prompt || '此舊任務未保留提示詞。')}</p>${job.workflow === 'h3_image' ? '' : `<b>負面提示詞</b><p class="job-prompt">${escapeHtml(negative || '未填寫')}</p>`}</details>
     ${job.results.map(artworkMarkup).join('')}</article>`;
 }
 
@@ -220,9 +221,11 @@ function setSidebarCollapsed(collapsed) {
 }
 
 function resizePrompt() {
-  promptInput.style.height = 'auto';
-  const maximum = parseFloat(getComputedStyle(promptInput).maxHeight);
-  promptInput.style.height = Math.min(promptInput.scrollHeight, maximum) + 'px';
+  for (const input of [promptInput, $('negative-prompt')]) {
+    input.style.height = '0px';
+    const maximum = parseFloat(getComputedStyle(input).maxHeight);
+    input.style.height = Math.min(input.scrollHeight, maximum) + 'px';
+  }
 }
 
 function setupWorkflowPicker() {
@@ -283,7 +286,11 @@ function renderPresets() {
   presetList.innerHTML = state.presets.map((p, i) => `<button class="preset-card" data-preset="${escapeHtml(p.id)}" style="animation-delay:${Math.min(i * 35, 250)}ms"><span class="preset-emoji">${['🌷','🪻','🧁','🦋','🍓'][i % 5]}</span><span class="preset-copy"><b>${escapeHtml(p.name)}</b><small>${escapeHtml(p.prompt)}</small></span></button>`).join('');
   presetList.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => {
     const preset = state.presets.find(p => p.id === button.dataset.preset);
-    if (preset && !state.generating) { setSidebarOpen(false); promptInput.value = preset.prompt; submitPrompt(); }
+    if (preset && !state.generating) {
+      setSidebarOpen(false); promptInput.value = preset.prompt;
+      if (state.studioMode === 'image') state.generation[parameterKey()] = { ...currentParameters(), negative: preset.negative || '' };
+      renderParameters(); submitPrompt();
+    }
   }));
 }
 
@@ -304,8 +311,7 @@ function parameterFields() {
     { key: 'height', label: '高度 Height', min: 256, max: 2048, step: 32, defaultValue: (superduper || nsfwAdv) ? 1536 : 1024, help: '輸出圖片的垂直像素。調高：畫面更高、細節、耗時與顯存用量增加。調低：更快更省顯存，但細節減少。必須是 32 的倍數。' },
     { key: 'steps', label: '步數 Steps', min: 4, max: 60, step: 1, defaultValue: superduper ? 40 : nsfwAdv ? 10 : 8, help: superduper ? '雙階段取樣的總去噪步數，會依原工作流比例切成前後兩段。調高：細化時間更長、可能更穩定但耗時增加；調低：更快，但結構與細節容易不足。' : nsfwAdv ? '作者範例使用 10 步。調高會增加細化時間但可能削弱 Lightning 配方；調低更快，但細節與結構可能不足。' : '模型反覆去除雜訊的次數。8 是 Turbo 官方蒸餾配方。調高：明顯變慢且不保證更清晰；調低：更快，但細節、文字與構圖穩定度通常下降。' },
     { key: 'cfg', label: '提示詞引導 CFG', min: 1, max: 15, step: .1, defaultValue: superduper ? 2 : 1, help: superduper ? '控制第二階段貼近提示詞的強度。調高：提示詞約束與對比更強，過高會僵硬、過曝或出現瑕疵；調低：畫面更自由自然，但可能偏離描述。' : nsfwAdv ? '作者建議 CFG 1。調高會加強提示詞約束，但可能破壞 LoKr 與 Lightning 的原始平衡；最低為 1。' : '控制模型貼近提示詞的強度。1 是 Turbo 原生值。調高：提示詞約束增強，但更慢且過高容易失真；最低為 1。' },
-    { key: 'seed', label: '種子 Seed', min: 0, max: 9007199254740991, step: 1, defaultValue: '隨機', help: '決定初始雜訊；相同提示詞、尺寸與其他參數搭配相同種子可重現結果。數字大小沒有強弱之分，換一個數字只是換一種構圖與細節。留白會每次隨機。' },
-    { key: 'negative', label: '負面提示詞 Negative prompt', defaultValue: '留白', help: '描述不希望出現的內容。CFG=1 時 Turbo 幾乎不使用負面提示詞；提高 CFG 後作用才會變明顯。內容越多不一定越好，過度限制可能破壞構圖。' }
+    { key: 'seed', label: '種子 Seed', min: 0, max: 9007199254740991, step: 1, defaultValue: '隨機', help: '決定初始雜訊；相同提示詞、尺寸與其他參數搭配相同種子可重現結果。數字大小沒有強弱之分，換一個數字只是換一種構圖與細節。留白會每次隨機。' }
   ];
   if (superduper) fields.push({ key: 'lora_strength', label: 'LoRA 強度', min: 0, max: 2, step: .05, defaultValue: .8, help: '控制 pussyV2 LoRA 對模型與文字編碼的影響。調高：LoRA 特徵與觸發詞效果更明顯，過高可能扭曲或產生雜訊；調低：更接近基礎模型，設為 0 等同關閉 LoRA。' });
   if (nsfwAdv) fields.push(
@@ -317,14 +323,20 @@ function parameterFields() {
 
 function renderParameters() {
   const values = currentParameters();
-  $('generation-parameters').innerHTML = parameterFields().map(field => `<div class="parameter-field"><label>${field.label}<input data-parameter="${field.key}" type="${field.key === 'negative' ? 'text' : 'number'}" ${field.min === undefined ? 'maxlength="4000"' : `min="${field.min}" max="${field.max}" step="${field.step}"`} placeholder="${escapeHtml(field.defaultValue)}" value="${escapeHtml(values[field.key] ?? '')}"></label><p>${escapeHtml(field.help)}</p></div>`).join('');
+  $('generation-parameters').innerHTML = parameterFields().map(field => `<div class="parameter-field"><label>${field.label}<input data-parameter="${field.key}" type="number" min="${field.min}" max="${field.max}" step="${field.step}" placeholder="${escapeHtml(field.defaultValue)}" value="${escapeHtml(values[field.key] ?? '')}"></label><p>${escapeHtml(field.help)}</p></div>`).join('');
   $('generation-parameters').querySelectorAll('input').forEach(input => input.oninput = () => {
     if (!input.checkValidity()) return;
     const values = currentParameters();
     if (input.value === '') delete values[input.dataset.parameter];
-    else values[input.dataset.parameter] = input.dataset.parameter === 'negative' ? input.value : Number(input.value);
+    else values[input.dataset.parameter] = Number(input.value);
     state.generation[parameterKey()] = values;
   });
+  const video = state.studioMode === 'h3_image';
+  $('negative-prompt').disabled = video;
+  $('negative-prompt').classList.toggle('hidden', video);
+  $('negative-label').classList.toggle('hidden', video);
+  $('negative-prompt').value = video ? '' : values.negative || '';
+  resizePrompt();
   $('recipe-lock').textContent = state.workflow === 'superduper'
     ? '配方固定：ComfyUI、雙 KSampler、APG、FreSca，以及四段 Impact Pack 局部細修。'
     : state.workflow === 'nsfw_adv'
@@ -360,7 +372,8 @@ function openPresetEditor(preset = null) {
   const modal = openModal(preset ? '編輯魔法按鈕' : '做一個新按鈕 ♡', `
     <p class="modal-subtitle">儲存後會出現在左側，按一下就能直接送出提示詞。</p>
     <label class="form-field"><span>按鈕名稱</span><input id="preset-name" maxlength="32" placeholder="例：夢幻水彩" value="${escapeHtml(preset?.name ?? '')}"></label>
-    <label class="form-field"><span>要送給模型的完整提示詞</span><textarea id="preset-prompt" placeholder="寫下這個按鈕要替你說的話…">${escapeHtml(preset?.prompt ?? '')}</textarea></label>
+    <label class="form-field"><span>正向提示詞</span><textarea id="preset-prompt" maxlength="8000" placeholder="描述希望生成的內容…">${escapeHtml(preset?.prompt ?? '')}</textarea></label>
+    <label class="form-field"><span>負面提示詞</span><textarea id="preset-negative" maxlength="4000" placeholder="描述不希望出現的內容，可留白…">${escapeHtml(preset?.negative ?? '')}</textarea></label>
     <div class="modal-actions"><button class="secondary-button" id="preset-cancel">先不要</button><button class="primary-button" id="preset-save">♡ 儲存按鈕</button></div>`);
   modal.querySelector('#preset-cancel').onclick = () => { modalRoot.innerHTML = ''; };
   modal.querySelector('#preset-save').onclick = async () => {
@@ -368,10 +381,11 @@ function openPresetEditor(preset = null) {
     if (save.disabled) return;
     const name = modal.querySelector('#preset-name').value.trim();
     const text = modal.querySelector('#preset-prompt').value.trim();
+    const negative = modal.querySelector('#preset-negative').value;
     if (!name || !text) { toast('名稱和提示詞都要填寫喔'); return; }
     const nextPresets = editingId
-      ? state.presets.map(p => p.id === editingId ? { ...p, name, prompt: text } : p)
-      : [...state.presets, { id: crypto.randomUUID(), name, prompt: text }];
+      ? state.presets.map(p => p.id === editingId ? { ...p, name, prompt: text, negative } : p)
+      : [...state.presets, { id: crypto.randomUUID(), name, prompt: text, negative }];
     save.disabled = true;
     save.textContent = '正在儲存…';
     const saved = await persistSettings({ presets: nextPresets, preciseMode: state.preciseMode });
@@ -539,6 +553,7 @@ function setBusy(value) {
 
 async function submitPrompt() {
   const video = state.studioMode === 'h3_image';
+  if (!promptInput.reportValidity() || !$('negative-prompt').reportValidity()) return;
   for (const input of $(video ? 'video-form' : 'generation-parameters').querySelectorAll('input, select')) if (!input.reportValidity()) return;
   if (state.generating) return;
   const finalPrompt = promptInput.value;
@@ -546,6 +561,7 @@ async function submitPrompt() {
   const images = [...state.images];
   const workflow = video ? 'h3_image' : state.workflow;
   const parameters = video ? videoParameters() : currentParameters();
+  if (!video) parameters.negative = $('negative-prompt').value;
   if (video && (images.length < 1 || images.length > MAX_REFERENCE_IMAGES)) { toast('請選擇 1 至 4 張首幀圖片'); return; }
   const lastImage = video && parameters.end_frame === 'custom' ? state.videoLastImage : null;
   if (video && parameters.end_frame === 'custom') {
@@ -685,6 +701,10 @@ async function init() {
   });
   promptInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitPrompt(); } });
   promptInput.addEventListener('input', resizePrompt);
+  $('negative-prompt').addEventListener('input', () => {
+    state.generation[parameterKey()] = { ...currentParameters(), negative: $('negative-prompt').value };
+    resizePrompt();
+  });
   window.addEventListener('resize', resizePrompt);
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {

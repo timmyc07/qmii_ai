@@ -38,8 +38,7 @@ function renderParameters() {
     ['height', '高度 Height', 256, 2048, 32, (superduper || nsfwAdv) ? '1536' : '1024', '調高會增加垂直空間、細節、耗時與記憶體；調低會更快但細節減少。須為 32 的倍數。'],
     ['steps', '步數 Steps', 4, 60, 1, superduper ? '40' : nsfwAdv ? '10' : '8', superduper ? '雙階段取樣的總步數。調高可能更穩定但更慢；調低更快，但結構與細節容易不足。' : nsfwAdv ? '作者範例為 10 步；調高更慢且可能偏離 Lightning 配方，調低可能損失細節。' : '8 是 Turbo 官方配方。調高會變慢且不保證更清晰；調低會更快，但細節與穩定度通常下降。'],
     ['cfg', '提示詞引導 CFG', 1, 15, .1, superduper ? '2' : '1', superduper ? '第二階段的提示詞強度。調高會更貼近描述，過高容易僵硬或出現瑕疵；調低更自由但可能偏題。' : nsfwAdv ? '作者建議 CFG 1；調高可能破壞 LoKr 與 Lightning 的平衡。' : '1 是 Turbo 原生值。調高會加強提示詞約束，但更慢且過高容易失真；最低為 1。'],
-    ['seed', '種子（留白隨機）', 0, 9007199254740991, 1, '隨機', '相同設定與種子可重現結果。數字大小沒有強弱之分，換數字就是換構圖與細節。'],
-    ['negative', '負面提示詞', undefined, undefined, undefined, '留白', '描述不想出現的內容；CFG=1 時幾乎不起作用，提高 CFG 後才會較明顯。']
+    ['seed', '種子（留白隨機）', 0, 9007199254740991, 1, '隨機', '相同設定與種子可重現結果。數字大小沒有強弱之分，換數字就是換構圖與細節。']
   ];
   if (superduper) fields.push(['lora_strength', 'LoRA 強度', 0, 2, .05, '.8', '調高會加強 pussyV2 特徵，過高可能扭曲或產生雜訊；調低更接近基礎模型，0 等同關閉。']);
   if (nsfwAdv) fields.push(
@@ -49,21 +48,27 @@ function renderParameters() {
   $('generation-parameters').replaceChildren();
   for (const [key, title, min, max, step, placeholder, help] of fields) {
     const label = document.createElement('label'); label.textContent = title;
-    const input = document.createElement('input'); input.dataset.parameter = key; input.type = key === 'negative' ? 'text' : 'number';
-    if (min !== undefined) { input.min = min; input.max = max; input.step = step; } else input.maxLength = 4000;
+    const input = document.createElement('input'); input.dataset.parameter = key; input.type = 'number';
+    input.min = min; input.max = max; input.step = step;
     input.placeholder = placeholder; input.value = currentParameters()[key] ?? '';
     input.oninput = () => {
       if (!input.checkValidity()) return;
       settings.generation ||= {}; const values = currentParameters();
-      if (input.value === '') delete values[key]; else values[key] = key === 'negative' ? input.value : Number(input.value);
+      if (input.value === '') delete values[key]; else values[key] = Number(input.value);
       settings.generation[parameterKey()] = values; dirty = true;
       $('settings-status').textContent = '參數尚未儲存；提交任務會使用目前值。';
     };
     const note = document.createElement('small'); note.className = 'parameter-help'; note.textContent = help;
     label.append(input, note); $('generation-parameters').append(label);
   }
+  $('negative-prompt').value = currentParameters().negative || '';
   $('files').disabled = submitting;
 }
+$('negative-prompt').oninput = () => {
+  settings.generation ||= {};
+  settings.generation[parameterKey()] = { ...currentParameters(), negative: $('negative-prompt').value };
+  dirty = true; $('settings-status').textContent = '提示詞尚未儲存；提交任務會使用目前值。';
+};
 $('reset-parameters').onclick = () => { if (settings.generation) delete settings.generation[parameterKey()]; dirty = true; renderParameters(); };
 
 function applySettings(value) {
@@ -78,7 +83,10 @@ function renderPresets() {
   for (const preset of settings.presets) {
     const row = document.createElement('div'); row.className = 'preset-row';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = preset.name;
-    button.onclick = () => { $('prompt').value = preset.prompt; $('composer').requestSubmit(); };
+    button.onclick = () => {
+      $('prompt').value = preset.prompt; $('negative-prompt').value = preset.negative || '';
+      $('negative-prompt').dispatchEvent(new Event('input')); $('composer').requestSubmit();
+    };
     const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = '編輯';
     edit.setAttribute('aria-label', `編輯${preset.name}`); edit.onclick = () => openPreset(preset);
     row.append(button, edit); $('presets').append(row);
@@ -88,6 +96,7 @@ function renderPresets() {
 function openPreset(preset) {
   editingId = preset?.id || null;
   $('preset-name').value = preset?.name || ''; $('preset-prompt').value = preset?.prompt || '';
+  $('preset-negative').value = preset?.negative || '';
   $('delete-preset').classList.toggle('hidden', !preset); $('preset-editor').showModal();
 }
 
@@ -146,7 +155,7 @@ function showLogin() {
   document.querySelectorAll('.job').forEach(node => node.remove());
   selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
   $('studio').classList.add('hidden'); $('logout').classList.add('hidden'); $('login-view').classList.remove('hidden');
-  $('precise-mode').checked = false; $('prompt').value = ''; $('presets').replaceChildren(); $('artworks').replaceChildren();
+  $('precise-mode').checked = false; $('prompt').value = ''; $('negative-prompt').value = ''; $('presets').replaceChildren(); $('artworks').replaceChildren();
   $('preset-editor').close(); $('preview').close(); $('preview-image').removeAttribute('src');
   settings = { presets: [], preciseMode: false, revision: '' }; dirty = false;
 }
@@ -163,14 +172,16 @@ function renderJob(job) {
   let card = cards.get(job.id);
   if (!card) {
     card = document.createElement('article'); card.className = 'job'; card.dataset.id = job.id;
+    const { negative = '', ...parameters } = job.parameters || {};
     const user = document.createElement('div'); user.className = 'user-message';
     if (job.sources.length) {
       for (const url of job.sources) { const img = document.createElement('img'); img.src = url; img.alt = '已送出的圖片'; user.append(img); }
       if (job.prompt) {
-        const prompt = document.createElement('div'); prompt.textContent = job.prompt; user.prepend(prompt);
+        const prompt = document.createElement('div'); prompt.textContent = '正向提示詞：\n' + job.prompt; user.prepend(prompt);
       }
-    } else user.textContent = job.prompt;
-    if (job.parameters && Object.keys(job.parameters).length) { const params = document.createElement('p'); params.className = 'note'; params.textContent = '參數：' + JSON.stringify(job.parameters); user.append(params); }
+    } else user.textContent = '正向提示詞：\n' + job.prompt;
+    if (job.workflow !== 'h3_image') { const negativeText = document.createElement('div'); negativeText.textContent = '負面提示詞：\n' + (negative || '未填寫'); user.append(negativeText); }
+    if (Object.keys(parameters).length) { const params = document.createElement('p'); params.className = 'note'; params.textContent = '參數：' + JSON.stringify(parameters); user.append(params); }
     const status = document.createElement('div'); status.className = 'job-status'; status.setAttribute('role', 'status');
     const metadata = document.createElement('div'); metadata.className = 'job-metadata';
     card.append(user, metadata, status); cards.set(job.id, card); $('feed').append(card);
@@ -246,6 +257,8 @@ $('composer').onsubmit = async event => {
   event.preventDefault(); if (submitting) return;
   for (const input of $('generation-parameters').querySelectorAll('input')) if (!input.reportValidity()) return;
   const prompt = $('prompt').value;
+  if (!$('negative-prompt').reportValidity()) return;
+  const parameters = { ...currentParameters(), negative: $('negative-prompt').value };
   if (!prompt.trim() || prompt.length > 8000) { toast('請輸入提示詞，合計最多 8000 字。'); return; }
   if ($('workflow').value === 'reference' && selected.length < 2) { toast('多圖參考至少需要 2 張參考圖片。'); return; }
   submitting = true; $('send').disabled = true; $('files').disabled = true; $('send').textContent = '上傳中…';
@@ -254,9 +267,9 @@ $('composer').onsubmit = async event => {
       if (!value.id) value.id = (await api('/api/uploads', { method: 'POST', headers: { 'Content-Type': value.file.type || 'application/octet-stream' }, body: value.file })).id;
     }
     // Retain the request ID after an uncertain response so retry cannot duplicate a GPU task.
-    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), currentParameters(), $('precise-mode').checked]);
+    const signature = JSON.stringify([prompt, $('workflow').value, selected.map(value => value.id), parameters, $('precise-mode').checked]);
     if ($('composer').pendingSignature !== signature) { $('composer').pendingSignature = signature; $('composer').pendingId = crypto.randomUUID().replaceAll('-', ''); }
-    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), precise_mode: $('precise-mode').checked, request_id: $('composer').pendingId, origin: jobOrigin(), parameters: currentParameters() });
+    const job = await jsonPost('/api/jobs', { prompt, workflow: $('workflow').value, images: selected.map(value => value.id), precise_mode: $('precise-mode').checked, request_id: $('composer').pendingId, origin: jobOrigin(), parameters });
     renderJob(job); $('welcome').classList.add('hidden'); $('prompt').value = '';
     $('composer').pendingSignature = ''; selected.forEach(value => URL.revokeObjectURL(value.url)); selected = []; renderTray();
     toast('已交給你的電腦處理。'); await refresh();
@@ -272,7 +285,7 @@ $('new-preset').onclick = () => openPreset();
 $('cancel-preset').onclick = () => $('preset-editor').close();
 $('preset-form').onsubmit = async event => {
   event.preventDefault();
-  const preset = { id: editingId || crypto.randomUUID(), name: $('preset-name').value.trim(), prompt: $('preset-prompt').value.trim() };
+  const preset = { id: editingId || crypto.randomUUID(), name: $('preset-name').value.trim(), prompt: $('preset-prompt').value.trim(), negative: $('preset-negative').value };
   if (!preset.name || !preset.prompt) return;
   const next = editingId ? settings.presets.map(value => value.id === editingId ? preset : value) : [...settings.presets, preset];
   if (await saveSettings(next)) $('preset-editor').close();

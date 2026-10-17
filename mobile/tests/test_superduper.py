@@ -46,10 +46,12 @@ class SuperDuperTest(unittest.TestCase):
                 graph = compile_workflow(dict(width=768, height=1344, steps=20, cfg=2.5,
                                               lora_strength=.65, negative='blur'), 'portrait', 42)
                 edit = compile_workflow(dict(width=512, height=768), 'blue teacup', 42, 'test/source.png')
+                empty = compile_workflow(dict(negative=''), 'portrait', 42)
         self.assertNotIn('55', graph)
         self.assertEqual(graph['62']['inputs']['height'], 1344)
         self.assertEqual(graph['82']['inputs']['prompt'], 'STZK, portrait')
         self.assertEqual(graph['82']['inputs']['negative_prompt'], 'blur')
+        self.assertEqual(empty['82']['inputs']['negative_prompt'], '')
         self.assertEqual(graph['88']['inputs']['end_at_step'], 12)
         self.assertEqual(graph['89']['inputs']['start_at_step'], 12)
         self.assertEqual(graph['83']['inputs']['strength_model'], .65)

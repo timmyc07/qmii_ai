@@ -53,8 +53,10 @@
     </section>
     <form id="composer" class="composer">
       <div id="tray" class="tray" aria-label="待處理圖片"></div>
-      <label for="prompt" class="sr-only">圖片生成或修改提示詞</label>
-      <textarea id="prompt" rows="2" maxlength="8000" placeholder="說說你的想法…"></textarea>
+      <label for="prompt" class="prompt-label">正向提示詞</label>
+      <textarea id="prompt" rows="2" maxlength="8000" placeholder="描述希望生成的內容…"></textarea>
+      <label for="negative-prompt" class="prompt-label">負面提示詞</label>
+      <textarea id="negative-prompt" rows="1" maxlength="4000" placeholder="描述不希望出現的內容，可留白…"></textarea>
       <div class="composer-tools">
         <label class="upload">＋ 圖片<input id="files" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple></label>
         <label class="sr-only" for="workflow">工作流</label>
@@ -64,7 +66,7 @@
       <p class="note">由你的電腦生成 · 完整 Prompt 與來源保留於共用任務</p>
     </form>
   </main>
-  <dialog id="preset-editor"><form id="preset-form"><h2>常用提示詞按鈕</h2><label for="preset-name">名稱</label><input id="preset-name" required maxlength="100"><label for="preset-prompt">提示詞</label><textarea id="preset-prompt" required rows="5" maxlength="8000"></textarea><div class="setting-actions"><button type="submit" class="primary">儲存按鈕</button><button id="delete-preset" type="button" class="quiet">刪除</button><button id="cancel-preset" type="button" class="quiet">取消</button></div></form></dialog>
+  <dialog id="preset-editor"><form id="preset-form"><h2>常用提示詞按鈕</h2><label for="preset-name">名稱</label><input id="preset-name" required maxlength="100"><label for="preset-prompt">正向提示詞</label><textarea id="preset-prompt" required rows="5" maxlength="8000"></textarea><label for="preset-negative">負面提示詞</label><textarea id="preset-negative" rows="3" maxlength="4000" placeholder="描述不希望出現的內容，可留白…"></textarea><div class="setting-actions"><button type="submit" class="primary">儲存按鈕</button><button id="delete-preset" type="button" class="quiet">刪除</button><button id="cancel-preset" type="button" class="quiet">取消</button></div></form></dialog>
   <dialog id="preview"><button id="close-preview" class="quiet" type="button">關閉預覽</button><img id="preview-image" alt="作品預覽"><a id="preview-download">↓ 下載作品</a></dialog>
   <div id="toast" role="status" class="toast hidden"></div>
   <script src="/static/mobile.js" defer></script>

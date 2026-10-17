@@ -24,6 +24,7 @@ class Preset(BaseModel):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=100)
     prompt: str = Field(max_length=8000)
+    negative: str = Field(default='', max_length=4000)
 
 
 class Settings(BaseModel):

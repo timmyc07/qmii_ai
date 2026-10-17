@@ -231,6 +231,8 @@ button:disabled { cursor: wait; opacity: .6; }
 .composer-shell:focus-within { border-color: #cfb9e5; box-shadow: 0 10px 28px #866aa51b, 0 0 0 3px #decdec33; }
 .composer-shell textarea { display: block; width: 100%; resize: none; min-height: 2.8rem; max-height: clamp(2.8rem, 18dvh, 12rem); overflow: auto; border: 0; background: transparent; padding: .35rem .45rem; color: #514562; font-size: 1rem; line-height: 1.6; outline: 0; }
 .composer-shell textarea::placeholder { color: #9b8aa7; }
+.prompt-label { display: block; margin: .2rem .45rem 0; color: #80678f; font-size: .72rem; }
+.composer-shell #negative-prompt { min-height: 2.3rem; max-height: 12dvh; font-size: .85rem; }
 .composer-tools { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding-top: .35rem; }
 .composer-left, .composer-right { min-width: 0; display: flex; align-items: center; gap: .65rem; }
 .composer-left { flex-wrap: wrap; }
@@ -364,6 +366,9 @@ button:disabled { cursor: wait; opacity: .6; }
   .model-card { padding: .5rem; }
   .composer-area { padding-bottom: .5rem; }
   .composer-note { display: none; }
+  .composer-shell textarea { min-height: 2.2rem; max-height: 12dvh; }
+  .composer-shell #negative-prompt { min-height: 1.8rem; max-height: 8dvh; padding-block: .2rem; }
+  .thumb-wrap img { width: 3rem; height: 3rem; }
   .welcome-illustration { height: 6.5rem; transform: scale(.8); margin-block: -.5rem; }
   .topbar { min-height: 3.6rem; padding-block: .4rem; }
 }
